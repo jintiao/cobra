@@ -1,8 +1,7 @@
 #include <cmath>
 #include <fstream>
-#include <math.h>
 #include <functional>
-#include <iostream>
+#include <iterator>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -19,7 +18,6 @@ struct Vector3 {
 
 struct Matrix4 {
 	float m[4][4];
-    Matrix4 () { memset (m, 0, sizeof (m)); m[0][0] = m[1][1] = m[2][2] = m[3][3] = 1.0f; }
     Matrix4 operator* (const Matrix4 &rhs) const {
         Matrix4 res;
         for (int i = 0; i < 4; i++) {
@@ -110,9 +108,7 @@ struct Index { int pos[3], uv[3], normal[3]; };
 struct Vertex { Vector3 pos, normal, uv; };
 
 Matrix4 CreateProjectionMatrix (float fov, float ratio, float n, float f) {
-	float r = n * tan (fov * 0.5f);
-	float l = -r, b = -r / ratio, t = r / ratio;
-
+	float r = n * tan (fov * 0.5f), l = -r, b = -r / ratio, t = r / ratio;
     Matrix4 mat;
     mat.m[0][0] = 2 * n / (r - l); mat.m[0][1] = 0.0f; mat.m[0][2] = 0.0f; mat.m[0][3] = 0.0f;
     mat.m[1][0] = 0.0f; mat.m[1][1] = 2 * n / (t - b); mat.m[1][2] = 0.0f; mat.m[1][3] = 0.0f;
@@ -122,9 +118,7 @@ Matrix4 CreateProjectionMatrix (float fov, float ratio, float n, float f) {
 }
 
 Matrix4 CreateViewMatrix (const Vector3 &look, const Vector3 &at, const Vector3 &up) {
-    Vector3 dir = (look - at).Normalize ();
-    Vector3 left = up.Cross (dir).Normalize ();
-    Vector3 newUp = dir.Cross (left);
+    Vector3 dir = (look - at).Normalize (), left = up.Cross (dir).Normalize (), newUp = dir.Cross (left);
     Matrix4 mat;
     mat.m[0][0] = left.x; mat.m[0][1] = left.y; mat.m[0][2] = left.z; mat.m[0][3] = 0.0f;
     mat.m[1][0] = newUp.x; mat.m[1][1] = newUp.y; mat.m[1][2] = newUp.z; mat.m[1][3] = 0.0f;
@@ -134,45 +128,9 @@ Matrix4 CreateViewMatrix (const Vector3 &look, const Vector3 &at, const Vector3 
     return mat;
 }
 
-struct Model {
-    Matrix4 mat;
-	std::vector<Vector3> posBuffer, normalBuffer, uvBuffer;
-	std::vector<Index> indexBuffer;
-	Model (std::string str) {
-		float x, y, z;
-        char dummy;
-		std::ifstream is (str);
-		while (std::getline (is, str)) {
-			if (str.length () < 2) continue;
-			std::istringstream iss (str);
-			std::string token;
-			if (str[1] == 't' && str[0] == 'v') {
-				iss >> token >> x >> y;
-				uvBuffer.push_back ({ x, y });
-			}
-			else if (str[1] == 'n' && str[0] == 'v') {
-				iss >> token >> x >> y >> z;
-				normalBuffer.push_back ({ x, y, z });
-			}
-			else if (str[0] == 'v') {
-				iss >> token >> x >> y >> z;
-				posBuffer.push_back ({ x, y, z });
-			}
-			else if (str[0] == 'f') {
-				Index index;
-				iss >> token >> index.pos[0] >> dummy >> index.uv[0] >> dummy >> index.normal[0] >>
-					index.pos[1] >> dummy >> index.uv[1] >> dummy >> index.normal[1] >>
-					index.pos[2] >> dummy >> index.uv[2] >> dummy >> index.normal[2];
-				indexBuffer.push_back (index);
-			}
-		}
-	}
-};
-
 int CalcOctant (int x0, int y0, int x1, int y1)
 {
-	int x = x1 - x0;
-	int y = y1 - y0;
+	int x = x1 - x0, y = y1 - y0;
 	if (x >= 0)
 	{
 		if (y >= 0)
@@ -273,15 +231,73 @@ void SwitchFromOctantZeroTo (int octant, int &x, int &y)
 	}
 }
 
+void SaveBmp (std::vector<Color> &frameBuffer, int width, int height, std::string file) {
+#define INT2CHAR_BIT(num, bit) (char)(((num) >> (bit)) & 0xff)
+#define INT2CHAR(num) INT2CHAR_BIT((num),0), INT2CHAR_BIT((num),8), INT2CHAR_BIT((num),16), INT2CHAR_BIT((num),24)
+	const char header[54] = { 'B', 'M', INT2CHAR (54 + width*height * sizeof (Color)), INT2CHAR (0), INT2CHAR (54), INT2CHAR (40), INT2CHAR (width), INT2CHAR (height), 1, 0, 32, 0 };
+	std::ofstream ofs (file, std::ios_base::out | std::ios_base::binary);
+	ofs.write (header, sizeof (header));
+	ofs.write (static_cast<const char *> (static_cast<const void *> (frameBuffer.data ())), width * height * sizeof (Color));
+}
+
+struct Texture {
+	int width, height;
+	std::vector<Color> data;
+	Texture (std::string file) {
+		std::ifstream is (file, std::ios_base::binary);
+		unsigned char header[54];
+		is.read ((char *)header, sizeof (header));
+		width = *(int *)&header[18], height = *(int *)&header[22];
+		data.resize (width * height);
+		for (auto &color : data) {
+			is.read ((char *)header, 3);
+			color = { header[0], header[1], header[2], 0 };
+		}
+		SaveBmp (data, width, height, "texd.bmp");
+	}
+};
+
+struct Model {
+	std::vector<Vector3> posBuffer, normalBuffer, uvBuffer;
+	std::vector<Index> indexBuffer;
+	Texture diffTexture;
+	Model (std::string str) : diffTexture (str + ".bmp") {
+		float x, y, z;
+		char dummy;
+		std::ifstream is (str + ".obj");
+		while (std::getline (is, str)) {
+			if (str.length () < 2) continue;
+			std::istringstream iss (str);
+			std::string token;
+			if (str[1] == 't' && str[0] == 'v') {
+				iss >> token >> x >> y;
+				uvBuffer.push_back ({ x, y });
+			} else if (str[1] == 'n' && str[0] == 'v') {
+				iss >> token >> x >> y >> z;
+				normalBuffer.push_back ({ x, y, z });
+			} else if (str[0] == 'v') {
+				iss >> token >> x >> y >> z;
+				posBuffer.push_back ({ x, y, z });
+			} else if (str[0] == 'f') {
+				Index index;
+				iss >> token >> index.pos[0] >> dummy >> index.uv[0] >> dummy >> index.normal[0] >>
+					index.pos[1] >> dummy >> index.uv[1] >> dummy >> index.normal[1] >>
+					index.pos[2] >> dummy >> index.uv[2] >> dummy >> index.normal[2];
+				indexBuffer.push_back (index);
+			}
+		}
+	}
+};
+
 struct Renderer {
 	std::vector<Color> frameBuffer;
 	std::vector<float> depthBuffer;
-	Matrix4 projMat;
-	Renderer (int width, int height, Matrix4 pm) : frameBuffer (width * height, { 0, 0, 0, 0 }), depthBuffer (width * height, std::numeric_limits<float>::max ()), projMat (pm) { }
-	void DrawModel (const Vector3 &eye, const Vector3 &at, const Vector3 &up, Model &model, bool wireframe = false) {
-		Matrix4 mvp = model.mat * CreateViewMatrix (eye, at, up) * projMat;
-		auto VertexShader = [&mvp] (const Vector3 &pos, const Vector3 &, const Vector3 &, Vertex &outVertex) {
+	Renderer (int width, int height) : frameBuffer (width * height, { 0, 0, 0, 0 }), depthBuffer (width * height, std::numeric_limits<float>::max ()) { }
+	void DrawModel (Matrix4 projMat, Matrix4 viewMat, Model &model, bool wireframe = false) {
+		Matrix4 mvp = viewMat * projMat;
+		auto VertexShader = [&mvp] (const Vector3 &pos, const Vector3 &, const Vector3 &uv, Vertex &outVertex) {
 			outVertex.pos = mvp * pos;
+			outVertex.uv = uv;
 		};
 		for (auto &index : model.indexBuffer) {
 			Vertex ov[3];
@@ -289,51 +305,36 @@ struct Renderer {
 				VertexShader (model.posBuffer[index.pos[i] - 1], model.normalBuffer[index.normal[i] - 1], model.uvBuffer[index.uv[i] - 1], ov[i]);
                 ov[i].pos.x = (ov[i].pos.x + 1) * WIDTH * 0.5f;
                 ov[i].pos.y = (1 - ov[i].pos.y) * HEIGHT * 0.5f;
-                ov[i].pos.z = 1.0f / -ov[i].pos.z;
 			}
             wireframe ? DrawTriangle (ov[0], ov[1], ov[2]) : FillTriangle (ov[0], ov[1], ov[2]);
 		}
 	}
-	void FillTriangle (const Vertex &, const Vertex &, const Vertex &) {
-    }
 	void DrawTriangle (const Vertex &v0, const Vertex &v1, const Vertex &v2) {
-        std::cout << "DrawTriangle" << std::endl;
-        std::cout << "(" << v0.pos.x << ", " << v0.pos.y << ", " << v0.pos.z << ")"
-                        << ", (" << v1.pos.x << ", " << v1.pos.y << ", " << v1.pos.z << ")"
-                        << ", (" << v2.pos.x << ", " << v2.pos.y << ", " << v2.pos.z << ")" << std::endl;
 		DrawLine (v0, v1);
 		DrawLine (v1, v2);
 		DrawLine (v0, v2);
 	}
     void DrawLine (const Vertex &v0, const Vertex &v1) {
-        int x0 = (int)round (v0.pos.x), y0 = (int)round (v0.pos.y), x1 = (int)round (v1.pos.x), y1 = (int)round (v1.pos.y);
-        int octant = CalcOctant (x0, y0, x1, y1);
+        int x0 = (int)round (v0.pos.x), y0 = (int)round (v0.pos.y), x1 = (int)round (v1.pos.x), y1 = (int)round (v1.pos.y), octant = CalcOctant (x0, y0, x1, y1);
         SwitchToOctantZeroFrom (octant, x0, y0);
         SwitchToOctantZeroFrom (octant, x1, y1);
-        float dx = (float)(x1 - x0);
-        float dy = (float)(y1 - y0);
-        float delta = dy / dx;
-        float y = y0 - delta;
-        for (int x = x0 + 1; x <= x1; x++)
-        {
-            y += delta;
-            DrawPoint (octant, x, (int)round (y), WHITE);
+        float dx = (float)(x1 - x0), dy = (float)(y1 - y0), y = (float)y0, delta = dy / dx;
+        for (int x = x0 + 1; x <= x1; x++, y += delta) {
+			int ix = x, iy = (int)round (y);
+			SwitchFromOctantZeroTo (octant, ix, iy);
+			if (ix >= 0 && iy >= 0 && (ix + iy * WIDTH) < frameBuffer.size ()) {
+				frameBuffer[ix + iy * WIDTH] = WHITE;
+			}
         }
     }
-    void DrawPoint (int octant, int x, int y, Color &color) {
-        SwitchFromOctantZeroTo (octant, x, y);
-		int p = x + y * WIDTH;
-		if (x >= 0 && y >= 0 && p < frameBuffer.size ()) {
-			frameBuffer[p] = color;
-		}
-    }
+	void FillTriangle (const Vertex &, const Vertex &, const Vertex &) {
+	}
 	void DrawPoint (const Vertex &v) {
 		auto PixelShader = [] (const Vector3 &, Color &outColor) {
 			outColor = { 255, 255, 255, 0 };
 		};
 		Color c;
-		int x = (int)v.pos.x, y = (int)v.pos.y;
-		int p = x + y * WIDTH;
+		int x = (int)v.pos.x, y = (int)v.pos.y, p = x + y * WIDTH;
 		if (x >= 0 && y >= 0 && p < frameBuffer.size ()) {
 			PixelShader (v.uv, c);
 			frameBuffer[p] = c;
@@ -341,19 +342,10 @@ struct Renderer {
 	}
 };
 
-void SaveBmp (std::vector<Color> &frameBuffer, int width, int height, std::string file) {
-#define INT2CHAR_BIT(num, bit) (char)(((num) >> (bit)) & 0xff)
-#define INT2CHAR(num) INT2CHAR_BIT((num),0), INT2CHAR_BIT((num),8), INT2CHAR_BIT((num),16), INT2CHAR_BIT((num),24)
-	const char header[54] = { 'B', 'M', INT2CHAR(54+width*height*sizeof(Color)), INT2CHAR(0), INT2CHAR(54), INT2CHAR(40), INT2CHAR(width), INT2CHAR (height), 1, 0, 32, 0 };
-	std::ofstream ofs (file, std::ios_base::out | std::ios_base::binary);
-	ofs.write (header, sizeof (header));
-	ofs.write (static_cast<const char *> (static_cast<const void *> (frameBuffer.data ())), width * height * sizeof (Color));
-}
-
 int main () {
-	Renderer renderer (WIDTH, HEIGHT, CreateProjectionMatrix ((float)M_PI_2, (float)WIDTH / (float)HEIGHT, 0.1f, 1000.0f));
-	Model model ("cube.obj");
-	renderer.DrawModel ({ 0.0f, 2.0f, 3.0f }, { 0.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }, model, true);
+	Renderer renderer (WIDTH, HEIGHT);
+	Model model ("cube");
+	renderer.DrawModel (CreateProjectionMatrix ((float)M_PI_2, (float)WIDTH / (float)HEIGHT, 0.1f, 1000.0f), CreateViewMatrix ({ 0.0f, 1.8f, 1.1f }, { 0.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }), model, true);
 	SaveBmp (renderer.frameBuffer, WIDTH, HEIGHT, "output.bmp");
 	return 0;
 }
