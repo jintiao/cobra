@@ -12,8 +12,7 @@ struct Vector3 {
 	float x, y, z;
 	Vector3 operator- (const Vector3 &rhs) const { return { x - rhs.x, y - rhs.y, z - rhs.z }; }
 	Vector3 Cross (const Vector3 &rhs) const { return { y * rhs.z - z * rhs.y, z * rhs.x - x * rhs.z, x * rhs.y - y * rhs.x }; }
-	float Length () const { return sqrtf (x * x + y * y + z * z); }
-	Vector3 Normalize () const { float rlen = 1.0f / Length (); return { x * rlen, y * rlen, z * rlen }; };
+	Vector3 Normalize () const { float invlen = 1.0f / sqrtf (x * x + y * y + z * z); return { x * invlen, y * invlen, z * invlen }; };
 };
 
 struct Matrix4 {
@@ -105,7 +104,7 @@ struct Matrix4 {
 struct Color { unsigned char b, g, r, a; };
 static Color WHITE = { 255, 255, 255, 0 };
 struct Index { int pos[3], uv[3], normal[3]; };
-struct Vertex { Vector3 pos, normal, uv; };
+struct Vertex { Vector3 pos, uv, normal; };
 
 Matrix4 CreateProjectionMatrix (float fov, float ratio, float n, float f) {
 	float r = n * tan (fov * 0.5f), l = -r, b = -r / ratio, t = r / ratio;
@@ -245,15 +244,14 @@ struct Texture {
 	std::vector<Color> data;
 	Texture (std::string file) {
 		std::ifstream is (file, std::ios_base::binary);
-		unsigned char header[54];
-		is.read ((char *)header, sizeof (header));
-		width = *(int *)&header[18], height = *(int *)&header[22];
+		unsigned char buf[54];
+		is.read ((char *)buf, sizeof (buf));
+		width = *(int *)&buf[18], height = *(int *)&buf[22];
 		data.resize (width * height);
 		for (auto &color : data) {
-			is.read ((char *)header, 3);
-			color = { header[0], header[1], header[2], 0 };
+			is.read ((char *)buf, 3);
+			color = { buf[0], buf[1], buf[2], 0 };
 		}
-		SaveBmp (data, width, height, "texd.bmp");
 	}
 };
 
