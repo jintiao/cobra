@@ -102,7 +102,6 @@ struct Matrix4 {
 };
 
 struct Color { unsigned char b, g, r, a; };
-static Color WHITE = { 255, 255, 255, 0 };
 struct Index { int pos[3], uv[3], normal[3]; };
 struct Vertex { Vector3 pos, uv, normal; };
 
@@ -287,24 +286,28 @@ struct Model {
 	}
 };
 
+#define PERSP_CORRECT 1
+
 struct Renderer {
 	std::vector<Color> frameBuffer;
 	std::vector<float> depthBuffer;
 	Renderer (int width, int height) : frameBuffer (width * height, { 0, 0, 0, 0 }), depthBuffer (width * height, std::numeric_limits<float>::max ()) { }
 	void DrawModel (Matrix4 projMat, Matrix4 viewMat, Model &model, bool wireframe = false) {
-		Matrix4 mvp = viewMat * projMat;
-		auto VertexShader = [&mvp] (const Vector3 &pos, const Vector3 &, const Vector3 &uv, Vertex &outVertex) {
-			outVertex.pos = mvp * pos;
+		// Matrix4 mvp = viewMat * projMat;
+		auto VertexShader = [&viewMat, &projMat] (const Vector3 &pos, const Vector3 &, const Vector3 &uv, Vertex &outVertex) {
+			Vector3 viewPos = viewMat * pos;
+            outVertex.pos = projMat * viewPos;
 			outVertex.uv = uv;
 		};
 		for (auto &index : model.indexBuffer) {
 			Vertex ov[3];
 			for (int i = 0; i < 3; i++) {
 				VertexShader (model.posBuffer[index.pos[i] - 1], model.normalBuffer[index.normal[i] - 1], model.uvBuffer[index.uv[i] - 1], ov[i]);
-                ov[i].pos.x = (ov[i].pos.x + 1) * WIDTH * 0.5f;
-                ov[i].pos.y = (1 - ov[i].pos.y) * HEIGHT * 0.5f;
+                ov[i].pos.x = (ov[i].pos.x + 1)* 0.5f * WIDTH ;
+                ov[i].pos.y = (ov[i].pos.y + 1)* 0.5f * HEIGHT;
 			}
-            wireframe ? DrawTriangle (ov[0], ov[1], ov[2]) : FillTriangle (ov[0], ov[1], ov[2]);
+            wireframe ? DrawTriangle (ov[0], ov[1], ov[2]) : FillTriangle (model, ov[0], ov[1], ov[2]);
+            DrawTriangle (ov[0], ov[1], ov[2]);
 		}
 	}
 	void DrawTriangle (const Vertex &v0, const Vertex &v1, const Vertex &v2) {
@@ -321,29 +324,80 @@ struct Renderer {
 			int ix = x, iy = (int)round (y);
 			SwitchFromOctantZeroTo (octant, ix, iy);
 			if (ix >= 0 && iy >= 0 && (ix + iy * WIDTH) < frameBuffer.size ()) {
-				frameBuffer[ix + iy * WIDTH] = WHITE;
+				frameBuffer[ix + iy * WIDTH] = { 255, 0, 0, 0 };
 			}
         }
     }
-	void FillTriangle (const Vertex &, const Vertex &, const Vertex &) {
-	}
-	void DrawPoint (const Vertex &v) {
-		auto PixelShader = [] (const Vector3 &, Color &outColor) {
-			outColor = { 255, 255, 255, 0 };
+	void FillTriangle (Model &model, const Vertex &v0, const Vertex &v1, const Vertex &v2) {
+		auto PixelShader = [] (const Color &diffColor, Color &outColor) {
+			outColor = diffColor;
 		};
-		Color c;
-		int x = (int)v.pos.x, y = (int)v.pos.y, p = x + y * WIDTH;
-		if (x >= 0 && y >= 0 && p < frameBuffer.size ()) {
-			PixelShader (v.uv, c);
-			frameBuffer[p] = c;
-		}
+        
+        float area = EdgeFunc (v0.pos, v1.pos, v2.pos);
+        
+#if PERSP_CORRECT
+        float s0 = v0.uv.x / v0.pos.z;
+        float t0 = v0.uv.y / v0.pos.z;
+        float s1 = v1.uv.x / v1.pos.z;
+        float t1 = v1.uv.y / v1.pos.z;
+        float s2 = v2.uv.x / v2.pos.z;
+        float t2 = v2.uv.y / v2.pos.z;
+        float z0 = 1.0f / v0.pos.z;
+        float z1 = 1.0f / v1.pos.z;
+        float z2 = 1.0f / v2.pos.z;
+#else
+        float s0 = v0.uv.x;
+        float t0 = v0.uv.y;
+        float s1 = v1.uv.x;
+        float t1 = v1.uv.y;
+        float s2 = v2.uv.x;
+        float t2 = v2.uv.y;
+#endif
+        
+        int x0 = std::max (0, (int)std::floor (std::min (v0.pos.x, std::min (v1.pos.x, v2.pos.x))));
+        int y0 = std::max (0, (int)std::floor (std::min (v0.pos.y, std::min (v1.pos.y, v2.pos.y))));
+        int x1 = std::max (WIDTH - 1, (int)std::floor (std::max (v0.pos.x, std::max (v1.pos.x, v2.pos.x))));
+        int y1 = std::max (HEIGHT - 1, (int)std::floor (std::max (v0.pos.y, std::max (v1.pos.y, v2.pos.y))));
+        for (int y = y0; y <= y1; y++) {
+            for (int x = x0; x <= x1; x++) {
+                Vector3 v = { x + 0.5f, y + 0.5f, 0 };
+                float w0 = EdgeFunc (v1.pos, v2.pos, v) / area;
+                float w1 = EdgeFunc (v2.pos, v0.pos, v) / area;
+                float w2 = EdgeFunc (v0.pos, v1.pos, v) / area;
+                if (w0 >= 0 && w1 >= 0 && w2 >= 0) {
+                    float z = 1.0f / (w0 / v0.pos.z + w1 / v1.pos.z + w2 / v2.pos.z);
+                    if (z >= depthBuffer[x + y * WIDTH]) continue;
+                    depthBuffer[x + y * WIDTH] = z;
+
+                    float s = (s0 * w0 + s1 * w1 + s2 * w2);
+                    float t = (t0 * w0 + t1 * w1 + t2 * w2);
+#if PERSP_CORRECT
+                    float zz = 1 / (w0 * z0 + w1 * z1 + w2 * z2);
+                    s *= zz, t *= zz;
+#endif
+                    int uu = s * model.diffTexture.width;
+                    int vv = t  * model.diffTexture.height;
+                    
+                    Color outColor;
+                    PixelShader (model.diffTexture.data[uu + vv * model.diffTexture.width], outColor);
+                    
+                    int p = x + y * WIDTH;
+                    if (x >= 0 && y >= 0 && p < frameBuffer.size ()) {
+                        frameBuffer[p] = outColor;
+                    }
+                }
+            }
+        }
 	}
+    float EdgeFunc (const Vector3 &p0, const Vector3 &p1, const Vector3 &p2) {
+        return ((p2.x - p0.x) * (p1.y - p0.y) - (p2.y - p0.y) * (p1.x - p0.x));
+    }
 };
 
 int main () {
 	Renderer renderer (WIDTH, HEIGHT);
-	Model model ("cube");
-	renderer.DrawModel (CreateProjectionMatrix ((float)M_PI_2, (float)WIDTH / (float)HEIGHT, 0.1f, 1000.0f), CreateViewMatrix ({ 0.0f, 1.8f, 1.1f }, { 0.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }), model, true);
-	SaveBmp (renderer.frameBuffer, WIDTH, HEIGHT, "output.bmp");
+	Model model ("plane");
+	renderer.DrawModel (CreateProjectionMatrix ((float)M_PI_2, (float)WIDTH / (float)HEIGHT, 0.1f, 1000.0f), CreateViewMatrix ({ 0.0f, 0.0f, 2.5f }, { 0.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }), model, false);
+	SaveBmp (renderer.frameBuffer, WIDTH, HEIGHT, "screenshot.bmp");
 	return 0;
 }
