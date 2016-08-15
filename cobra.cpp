@@ -11,10 +11,10 @@ const int WIDTH = 1024, HEIGHT = 768;
 
 struct Vector3 {
 	float x, y, z;
-	Vector3 operator- (const Vector3 &rhs) const { return{ x - rhs.x, y - rhs.y, z - rhs.z }; }
-	Vector3 Cross (const Vector3 &rhs) const { return{ y * rhs.z - z * rhs.y, z * rhs.x - x * rhs.z, x * rhs.y - y * rhs.x }; }
+	Vector3 operator- (const Vector3 &rhs) const { return { x - rhs.x, y - rhs.y, z - rhs.z }; }
+	Vector3 Cross (const Vector3 &rhs) const { return { y * rhs.z - z * rhs.y, z * rhs.x - x * rhs.z, x * rhs.y - y * rhs.x }; }
 	float Length () const { return sqrtf (x * x + y * y + z * z); }
-	Vector3 Normalize () const { float rlen = 1.0f / Length (); return{ x * rlen, y * rlen, z * rlen }; };
+	Vector3 Normalize () const { float rlen = 1.0f / Length (); return { x * rlen, y * rlen, z * rlen }; };
 };
 
 struct Matrix4 {
@@ -31,14 +31,15 @@ struct Matrix4 {
     }
     Vector3 operator* (const Vector3 &b) const {
 		Vector3 v;
-		v.x = m[0][0] * b.x + m[0][1] * b.y + m[0][2] * b.z;
-		v.y = m[1][0] * b.x + m[1][1] * b.y + m[1][2] * b.z;
-		v.z = m[2][0] * b.x + m[2][1] * b.y + m[2][2] * b.z;
+		float w = m[0][3] * b.x + m[1][3] * b.y + m[2][3] * b.z + m[3][3];
+		v.x = (m[0][0] * b.x + m[1][0] * b.y + m[2][0] * b.z + m[3][0]) / w;
+		v.y = (m[0][1] * b.x + m[1][1] * b.y + m[2][1] * b.z + m[3][1]) / w;
+		v.z = (m[0][2] * b.x + m[1][2] * b.y + m[2][2] * b.z + m[3][2]) / w;
 		return v;
 	}
 	void Invert () {
-		float tmp[12];
 		Matrix4	temm = *this;
+		float tmp[12];
 		tmp[0] = temm.m[2][2] * temm.m[3][3];
 		tmp[1] = temm.m[3][2] * temm.m[2][3];
 		tmp[2] = temm.m[1][2] * temm.m[3][3];
@@ -95,8 +96,7 @@ struct Matrix4 {
 		m[3][2] -= tmp[10] * temm.m[3][2] + tmp[2] * temm.m[0][2] + tmp[7] * temm.m[1][2];
 		m[3][3] = tmp[10] * temm.m[2][2] + tmp[4] * temm.m[0][2] + tmp[9] * temm.m[1][2];
 		m[3][3] -= tmp[8] * temm.m[1][2] + tmp[11] * temm.m[2][2] + tmp[5] * temm.m[0][2];
-		float det = (temm.m[0][0]*m[0][0] + temm.m[1][0]*m[0][1] + temm.m[2][0]*m[0][2] + temm.m[3][0]*m[0][3]);
-		float idet = 1.0f / det;
+		float idet = 1.0f / (temm.m[0][0] * m[0][0] + temm.m[1][0] * m[0][1] + temm.m[2][0] * m[0][2] + temm.m[3][0] * m[0][3]);
 		m[0][0] *= idet; m[0][1] *= idet; m[0][2] *= idet; m[0][3] *= idet;
 		m[1][0] *= idet; m[1][1] *= idet; m[1][2] *= idet; m[1][3] *= idet;
 		m[2][0] *= idet; m[2][1] *= idet; m[2][2] *= idet; m[2][3] *= idet;
@@ -110,8 +110,9 @@ struct Index { int pos[3], uv[3], normal[3]; };
 struct Vertex { Vector3 pos, normal, uv; };
 
 Matrix4 CreateProjectionMatrix (float fov, float ratio, float n, float f) {
-    float t = n * tan(fov * 0.5f);
-    float b = -t, l = -t * ratio, r = t * ratio;
+	float r = n * tan (fov * 0.5f);
+	float l = -r, b = -r / ratio, t = r / ratio;
+
     Matrix4 mat;
     mat.m[0][0] = 2 * n / (r - l); mat.m[0][1] = 0.0f; mat.m[0][2] = 0.0f; mat.m[0][3] = 0.0f;
     mat.m[1][0] = 0.0f; mat.m[1][1] = 2 * n / (t - b); mat.m[1][2] = 0.0f; mat.m[1][3] = 0.0f;
@@ -125,10 +126,10 @@ Matrix4 CreateViewMatrix (const Vector3 &look, const Vector3 &at, const Vector3 
     Vector3 left = up.Cross (dir).Normalize ();
     Vector3 newUp = dir.Cross (left);
     Matrix4 mat;
-    mat.m[0][0] = left.x; mat.m[1][0] = left.y; mat.m[2][0] = left.z; mat.m[3][0] = 0.0f;
-    mat.m[0][1] = newUp.x; mat.m[1][1] = newUp.y; mat.m[2][1] = newUp.z; mat.m[3][1] = 0.0f;
-    mat.m[0][2] = dir.x; mat.m[1][2] = dir.y; mat.m[2][2] = dir.z; mat.m[3][2] = 0.0f;
-    mat.m[0][3] = look.x; mat.m[1][3] = look.y; mat.m[2][3] = look.z; mat.m[3][3] = 1.0f;
+    mat.m[0][0] = left.x; mat.m[0][1] = left.y; mat.m[0][2] = left.z; mat.m[0][3] = 0.0f;
+    mat.m[1][0] = newUp.x; mat.m[1][1] = newUp.y; mat.m[1][2] = newUp.z; mat.m[1][3] = 0.0f;
+    mat.m[2][0] = dir.x; mat.m[2][1] = dir.y; mat.m[2][2] = dir.z; mat.m[2][3] = 0.0f;
+    mat.m[3][0] = look.x; mat.m[3][1] = look.y; mat.m[3][2] = look.z; mat.m[3][3] = 1.0f;
     mat.Invert ();
     return mat;
 }
@@ -207,7 +208,6 @@ int CalcOctant (int x0, int y0, int x1, int y1)
 		}
 	}
 }
-
 void SwitchToOctantZeroFrom (int octant, int &x, int &y)
 {
 	switch (octant)
@@ -279,24 +279,22 @@ struct Renderer {
 	Matrix4 projMat;
 	Renderer (int width, int height, Matrix4 pm) : frameBuffer (width * height, { 0, 0, 0, 0 }), depthBuffer (width * height, std::numeric_limits<float>::max ()), projMat (pm) { }
 	void DrawModel (const Vector3 &eye, const Vector3 &at, const Vector3 &up, Model &model, bool wireframe = false) {
-        Matrix4 mvp = projMat * CreateViewMatrix (eye, at, up) * model.mat;
-		auto VertexShader = [&mvp] (const Vector3 &pos, const Vector3 &normal, const Vector3 &uv, Vertex &outVertex) {
+		Matrix4 mvp = model.mat * CreateViewMatrix (eye, at, up) * projMat;
+		auto VertexShader = [&mvp] (const Vector3 &pos, const Vector3 &, const Vector3 &, Vertex &outVertex) {
 			outVertex.pos = mvp * pos;
-			outVertex.normal = normal;
-			outVertex.uv = uv;
 		};
 		for (auto &index : model.indexBuffer) {
 			Vertex ov[3];
 			for (int i = 0; i < 3; i++) {
 				VertexShader (model.posBuffer[index.pos[i] - 1], model.normalBuffer[index.normal[i] - 1], model.uvBuffer[index.uv[i] - 1], ov[i]);
-                ov[i].pos.x = (int)((ov[i].pos.x + 1) * WIDTH * 0.5f);
-                ov[i].pos.y = (int)((1 - ov[i].pos.y) * HEIGHT * 0.5f);
+                ov[i].pos.x = (ov[i].pos.x + 1) * WIDTH * 0.5f;
+                ov[i].pos.y = (1 - ov[i].pos.y) * HEIGHT * 0.5f;
                 ov[i].pos.z = 1.0f / -ov[i].pos.z;
 			}
             wireframe ? DrawTriangle (ov[0], ov[1], ov[2]) : FillTriangle (ov[0], ov[1], ov[2]);
 		}
 	}
-	void FillTriangle (const Vertex &v0, const Vertex &v1, const Vertex &v2) {
+	void FillTriangle (const Vertex &, const Vertex &, const Vertex &) {
     }
 	void DrawTriangle (const Vertex &v0, const Vertex &v1, const Vertex &v2) {
         std::cout << "DrawTriangle" << std::endl;
@@ -312,10 +310,10 @@ struct Renderer {
         int octant = CalcOctant (x0, y0, x1, y1);
         SwitchToOctantZeroFrom (octant, x0, y0);
         SwitchToOctantZeroFrom (octant, x1, y1);
-        float dx = (float)(v1.pos.x - v0.pos.x);
-        float dy = (float)(v1.pos.y - v0.pos.y);
+        float dx = (float)(x1 - x0);
+        float dy = (float)(y1 - y0);
         float delta = dy / dx;
-        float y = v0.pos.y - delta;
+        float y = y0 - delta;
         for (int x = x0 + 1; x <= x1; x++)
         {
             y += delta;
@@ -330,7 +328,7 @@ struct Renderer {
 		}
     }
 	void DrawPoint (const Vertex &v) {
-		auto PixelShader = [] (const Vector3 &uv, Color &outColor) {
+		auto PixelShader = [] (const Vector3 &, Color &outColor) {
 			outColor = { 255, 255, 255, 0 };
 		};
 		Color c;
@@ -355,7 +353,7 @@ void SaveBmp (std::vector<Color> &frameBuffer, int width, int height, std::strin
 int main () {
 	Renderer renderer (WIDTH, HEIGHT, CreateProjectionMatrix ((float)M_PI_2, (float)WIDTH / (float)HEIGHT, 0.1f, 1000.0f));
 	Model model ("cube.obj");
-	renderer.DrawModel ({ 4.0f, 3.0f, 30.0f }, { 0.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }, model, true);
+	renderer.DrawModel ({ 0.0f, 2.0f, 3.0f }, { 0.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }, model, true);
 	SaveBmp (renderer.frameBuffer, WIDTH, HEIGHT, "output.bmp");
 	return 0;
 }
