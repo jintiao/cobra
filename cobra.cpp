@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cmath>
 #include <fstream>
 #include <functional>
@@ -8,11 +9,11 @@
 
 const int WIDTH = 1024, HEIGHT = 768;
 
-struct Vector3 {
-	float x, y, z;
-	Vector3 operator- (const Vector3 &rhs) const { return { x - rhs.x, y - rhs.y, z - rhs.z }; }
-	Vector3 Cross (const Vector3 &rhs) const { return { y * rhs.z - z * rhs.y, z * rhs.x - x * rhs.z, x * rhs.y - y * rhs.x }; }
-	Vector3 Normalize () const { float invlen = 1.0f / sqrtf (x * x + y * y + z * z); return { x * invlen, y * invlen, z * invlen }; };
+struct Vector4 {
+	float x, y, z, w;
+	Vector4 operator- (const Vector4 &rhs) const { return { x - rhs.x, y - rhs.y, z - rhs.z }; }
+	Vector4 Cross (const Vector4 &rhs) const { return { y * rhs.z - z * rhs.y, z * rhs.x - x * rhs.z, x * rhs.y - y * rhs.x }; }
+	Vector4 Normalize () const { float invlen = 1.0f / sqrtf (x * x + y * y + z * z); return { x * invlen, y * invlen, z * invlen }; };
 };
 
 struct Matrix4 {
@@ -26,12 +27,12 @@ struct Matrix4 {
         }
         return res;
     }
-    Vector3 operator* (const Vector3 &b) const {
-		Vector3 v;
-		float w = m[0][3] * b.x + m[1][3] * b.y + m[2][3] * b.z + m[3][3];
-		v.x = (m[0][0] * b.x + m[1][0] * b.y + m[2][0] * b.z + m[3][0]) / w;
-		v.y = (m[0][1] * b.x + m[1][1] * b.y + m[2][1] * b.z + m[3][1]) / w;
-		v.z = (m[0][2] * b.x + m[1][2] * b.y + m[2][2] * b.z + m[3][2]) / w;
+    Vector4 operator* (const Vector4 &b) const {
+		Vector4 v;
+		v.w = m[0][3] * b.x + m[1][3] * b.y + m[2][3] * b.z + m[3][3];
+		v.x = (m[0][0] * b.x + m[1][0] * b.y + m[2][0] * b.z + m[3][0]) / v.w;
+		v.y = (m[0][1] * b.x + m[1][1] * b.y + m[2][1] * b.z + m[3][1]) / v.w;
+		v.z = (m[0][2] * b.x + m[1][2] * b.y + m[2][2] * b.z + m[3][2]) / v.w;
 		return v;
 	}
 	void Invert () {
@@ -103,7 +104,7 @@ struct Matrix4 {
 
 struct Color { unsigned char b, g, r, a; };
 struct Index { int pos[3], uv[3], normal[3]; };
-struct Vertex { Vector3 pos, uv, normal; };
+struct Vertex { Vector4 pos, uv, normal; };
 
 Matrix4 CreateProjectionMatrix (float fov, float ratio, float n, float f) {
 	float r = n * tan (fov * 0.5f), l = -r, b = -r / ratio, t = r / ratio;
@@ -115,8 +116,8 @@ Matrix4 CreateProjectionMatrix (float fov, float ratio, float n, float f) {
     return mat;
 }
 
-Matrix4 CreateViewMatrix (const Vector3 &look, const Vector3 &at, const Vector3 &up) {
-    Vector3 dir = (look - at).Normalize (), left = up.Cross (dir).Normalize (), newUp = dir.Cross (left);
+Matrix4 CreateViewMatrix (const Vector4 &look, const Vector4 &at, const Vector4 &up) {
+    Vector4 dir = (look - at).Normalize (), left = up.Cross (dir).Normalize (), newUp = dir.Cross (left);
     Matrix4 mat;
     mat.m[0][0] = left.x; mat.m[0][1] = left.y; mat.m[0][2] = left.z; mat.m[0][3] = 0.0f;
     mat.m[1][0] = newUp.x; mat.m[1][1] = newUp.y; mat.m[1][2] = newUp.z; mat.m[1][3] = 0.0f;
@@ -247,15 +248,13 @@ struct Texture {
 		is.read ((char *)buf, sizeof (buf));
 		width = *(int *)&buf[18], height = *(int *)&buf[22];
 		data.resize (width * height);
-		for (auto &color : data) {
-			is.read ((char *)buf, 3);
-			color = { buf[0], buf[1], buf[2], 0 };
-		}
+		if (buf[28] == 24) for (auto &color : data) is.read ((char *)&color, 3);
+		else if (buf[28] == 32) is.read ((char *)&data[0], sizeof (Color) * width * height);
 	}
 };
 
 struct Model {
-	std::vector<Vector3> posBuffer, normalBuffer, uvBuffer;
+	std::vector<Vector4> posBuffer, normalBuffer, uvBuffer;
 	std::vector<Index> indexBuffer;
 	Texture diffTexture;
 	Model (std::string str) : diffTexture (str + ".bmp") {
@@ -286,17 +285,15 @@ struct Model {
 	}
 };
 
-#define PERSP_CORRECT 1
-
 struct Renderer {
 	std::vector<Color> frameBuffer;
 	std::vector<float> depthBuffer;
 	Renderer (int width, int height) : frameBuffer (width * height, { 0, 0, 0, 0 }), depthBuffer (width * height, std::numeric_limits<float>::max ()) { }
 	void DrawModel (Matrix4 projMat, Matrix4 viewMat, Model &model, bool wireframe = false) {
-		// Matrix4 mvp = viewMat * projMat;
-		auto VertexShader = [&viewMat, &projMat] (const Vector3 &pos, const Vector3 &, const Vector3 &uv, Vertex &outVertex) {
-			Vector3 viewPos = viewMat * pos;
-            outVertex.pos = projMat * viewPos;
+		Matrix4 mvp = viewMat * projMat;
+		auto VertexShader = [&mvp, &viewMat] (const Vector4 &pos, const Vector4 &, const Vector4 &uv, Vertex &outVertex) {
+			Vector4 aaa = viewMat * pos;
+			outVertex.pos = mvp * pos;
 			outVertex.uv = uv;
 		};
 		for (auto &index : model.indexBuffer) {
@@ -305,6 +302,7 @@ struct Renderer {
 				VertexShader (model.posBuffer[index.pos[i] - 1], model.normalBuffer[index.normal[i] - 1], model.uvBuffer[index.uv[i] - 1], ov[i]);
                 ov[i].pos.x = (ov[i].pos.x + 1)* 0.5f * WIDTH ;
                 ov[i].pos.y = (ov[i].pos.y + 1)* 0.5f * HEIGHT;
+				ov[i].pos.z = -ov[i].pos.w;
 			}
             wireframe ? DrawTriangle (ov[0], ov[1], ov[2]) : FillTriangle (model, ov[0], ov[1], ov[2]);
             DrawTriangle (ov[0], ov[1], ov[2]);
@@ -333,71 +331,50 @@ struct Renderer {
 			outColor = diffColor;
 		};
         
-        float area = EdgeFunc (v0.pos, v1.pos, v2.pos);
-        
-#if PERSP_CORRECT
-        float s0 = v0.uv.x / v0.pos.z;
-        float t0 = v0.uv.y / v0.pos.z;
-        float s1 = v1.uv.x / v1.pos.z;
-        float t1 = v1.uv.y / v1.pos.z;
-        float s2 = v2.uv.x / v2.pos.z;
-        float t2 = v2.uv.y / v2.pos.z;
-        float z0 = 1.0f / v0.pos.z;
-        float z1 = 1.0f / v1.pos.z;
-        float z2 = 1.0f / v2.pos.z;
-#else
-        float s0 = v0.uv.x;
-        float t0 = v0.uv.y;
-        float s1 = v1.uv.x;
-        float t1 = v1.uv.y;
-        float s2 = v2.uv.x;
-        float t2 = v2.uv.y;
-#endif
-        
+
+		float z0 = 1.0f / v0.pos.z;
+		float z1 = 1.0f / v1.pos.z;
+		float z2 = 1.0f / v2.pos.z;
+        float s0 = v0.uv.x * z0;
+        float t0 = v0.uv.y * z0;
+        float s1 = v1.uv.x * z1;
+        float t1 = v1.uv.y * z1;
+        float s2 = v2.uv.x * z2;
+        float t2 = v2.uv.y * z2;
+
+		float area = EdgeFunc (v0.pos, v1.pos, v2.pos);
         int x0 = std::max (0, (int)std::floor (std::min (v0.pos.x, std::min (v1.pos.x, v2.pos.x))));
         int y0 = std::max (0, (int)std::floor (std::min (v0.pos.y, std::min (v1.pos.y, v2.pos.y))));
         int x1 = std::max (WIDTH - 1, (int)std::floor (std::max (v0.pos.x, std::max (v1.pos.x, v2.pos.x))));
         int y1 = std::max (HEIGHT - 1, (int)std::floor (std::max (v0.pos.y, std::max (v1.pos.y, v2.pos.y))));
         for (int y = y0; y <= y1; y++) {
             for (int x = x0; x <= x1; x++) {
-                Vector3 v = { x + 0.5f, y + 0.5f, 0 };
-                float w0 = EdgeFunc (v1.pos, v2.pos, v) / area;
-                float w1 = EdgeFunc (v2.pos, v0.pos, v) / area;
-                float w2 = EdgeFunc (v0.pos, v1.pos, v) / area;
+                Vector4 v = { x + 0.5f, y + 0.5f, 0 };
+                float w0 = EdgeFunc (v1.pos, v2.pos, v) / area, w1 = EdgeFunc (v2.pos, v0.pos, v) / area, w2 = EdgeFunc (v0.pos, v1.pos, v) / area;
                 if (w0 >= 0 && w1 >= 0 && w2 >= 0) {
-                    float z = 1.0f / (w0 / v0.pos.z + w1 / v1.pos.z + w2 / v2.pos.z);
-                    if (z >= depthBuffer[x + y * WIDTH]) continue;
-                    depthBuffer[x + y * WIDTH] = z;
+					int p = x + y * WIDTH;
+                    float z = 1.0f / (w0 * z0 + w1 * z1 + w2 * z2);
+                    if (z >= depthBuffer[p]) continue;
+                    depthBuffer[p] = z;
 
-                    float s = (s0 * w0 + s1 * w1 + s2 * w2);
-                    float t = (t0 * w0 + t1 * w1 + t2 * w2);
-#if PERSP_CORRECT
-                    float zz = 1 / (w0 * z0 + w1 * z1 + w2 * z2);
-                    s *= zz, t *= zz;
-#endif
-                    int uu = s * model.diffTexture.width;
-                    int vv = t  * model.diffTexture.height;
-                    
-                    Color outColor;
-                    PixelShader (model.diffTexture.data[uu + vv * model.diffTexture.width], outColor);
-                    
-                    int p = x + y * WIDTH;
-                    if (x >= 0 && y >= 0 && p < frameBuffer.size ()) {
-                        frameBuffer[p] = outColor;
-                    }
+					Color outColor;
+                    float s = (s0 * w0 + s1 * w1 + s2 * w2) * z;
+                    float t = (t0 * w0 + t1 * w1 + t2 * w2) * z;
+                    PixelShader (model.diffTexture.data[(int)std::floor (s * model.diffTexture.width) + (int)std::floor (t  * model.diffTexture.height) * model.diffTexture.width], outColor);
+					frameBuffer[p] = outColor;
                 }
             }
         }
 	}
-    float EdgeFunc (const Vector3 &p0, const Vector3 &p1, const Vector3 &p2) {
+    float EdgeFunc (const Vector4 &p0, const Vector4 &p1, const Vector4 &p2) {
         return ((p2.x - p0.x) * (p1.y - p0.y) - (p2.y - p0.y) * (p1.x - p0.x));
     }
 };
 
 int main () {
 	Renderer renderer (WIDTH, HEIGHT);
-	Model model ("plane");
-	renderer.DrawModel (CreateProjectionMatrix ((float)M_PI_2, (float)WIDTH / (float)HEIGHT, 0.1f, 1000.0f), CreateViewMatrix ({ 0.0f, 0.0f, 2.5f }, { 0.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }), model, false);
+	Model model ("cube");
+	renderer.DrawModel (CreateProjectionMatrix ((float)M_PI_2, (float)WIDTH / (float)HEIGHT, 0.1f, 1000.0f), CreateViewMatrix ({ 0.0f, 2.0f, 2.5f }, { 0.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }), model, false);
 	SaveBmp (renderer.frameBuffer, WIDTH, HEIGHT, "screenshot.bmp");
 	return 0;
 }
