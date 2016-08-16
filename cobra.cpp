@@ -291,8 +291,7 @@ struct Renderer {
 	Renderer (int width, int height) : frameBuffer (width * height, { 0, 0, 0, 0 }), depthBuffer (width * height, std::numeric_limits<float>::max ()) { }
 	void DrawModel (Matrix4 projMat, Matrix4 viewMat, Model &model, bool wireframe = false) {
 		Matrix4 mvp = viewMat * projMat;
-		auto VertexShader = [&mvp, &viewMat] (const Vector4 &pos, const Vector4 &, const Vector4 &uv, Vertex &outVertex) {
-			Vector4 aaa = viewMat * pos;
+		auto VertexShader = [&mvp] (const Vector4 &pos, const Vector4 &, const Vector4 &uv, Vertex &outVertex) {
 			outVertex.pos = mvp * pos;
 			outVertex.uv = uv;
 		};
@@ -302,7 +301,7 @@ struct Renderer {
 				VertexShader (model.posBuffer[index.pos[i] - 1], model.normalBuffer[index.normal[i] - 1], model.uvBuffer[index.uv[i] - 1], ov[i]);
                 ov[i].pos.x = (ov[i].pos.x + 1)* 0.5f * WIDTH ;
                 ov[i].pos.y = (ov[i].pos.y + 1)* 0.5f * HEIGHT;
-				ov[i].pos.z = -ov[i].pos.w;
+				ov[i].pos.z = ov[i].pos.w;
 			}
             wireframe ? DrawTriangle (ov[0], ov[1], ov[2]) : FillTriangle (model, ov[0], ov[1], ov[2]);
             DrawTriangle (ov[0], ov[1], ov[2]);
@@ -322,7 +321,8 @@ struct Renderer {
 			int ix = x, iy = (int)round (y);
 			SwitchFromOctantZeroTo (octant, ix, iy);
 			if (ix >= 0 && iy >= 0 && (ix + iy * WIDTH) < frameBuffer.size ()) {
-				frameBuffer[ix + iy * WIDTH] = { 255, 0, 0, 0 };
+				frameBuffer[ix + iy * WIDTH] = { 0, 255, 0, 0 };
+				depthBuffer[ix + iy * WIDTH] = 0;
 			}
         }
     }
@@ -366,15 +366,13 @@ struct Renderer {
             }
         }
 	}
-    float EdgeFunc (const Vector4 &p0, const Vector4 &p1, const Vector4 &p2) {
-        return ((p2.x - p0.x) * (p1.y - p0.y) - (p2.y - p0.y) * (p1.x - p0.x));
-    }
+    static inline float EdgeFunc (const Vector4 &p0, const Vector4 &p1, const Vector4 &p2) { return ((p2.x - p0.x) * (p1.y - p0.y) - (p2.y - p0.y) * (p1.x - p0.x)); }
 };
 
 int main () {
 	Renderer renderer (WIDTH, HEIGHT);
 	Model model ("cube");
-	renderer.DrawModel (CreateProjectionMatrix ((float)M_PI_2, (float)WIDTH / (float)HEIGHT, 0.1f, 1000.0f), CreateViewMatrix ({ 0.0f, 2.0f, 2.5f }, { 0.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }), model, false);
+	renderer.DrawModel (CreateProjectionMatrix ((float)M_PI_2, (float)WIDTH / (float)HEIGHT, 0.1f, 1000.0f), CreateViewMatrix ({ 0.8f, 1.2f, 1.4f }, { 0.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }), model, false);
 	SaveBmp (renderer.frameBuffer, WIDTH, HEIGHT, "screenshot.bmp");
 	return 0;
 }
