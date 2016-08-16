@@ -18,6 +18,7 @@ struct Vector4 {
 
 struct Matrix4 {
 	float m[4][4];
+	Matrix4 () { memset (m, 0, sizeof (m)); m[0][0] = m[1][1] = m[2][2] = m[3][3] = 1.0f; }
     Matrix4 operator* (const Matrix4 &rhs) const {
         Matrix4 res;
         for (int i = 0; i < 4; i++) {
@@ -100,6 +101,7 @@ struct Matrix4 {
 		m[2][0] *= idet; m[2][1] *= idet; m[2][2] *= idet; m[2][3] *= idet;
 		m[3][0] *= idet; m[3][1] *= idet; m[3][2] *= idet; m[3][3] *= idet;
 	}
+	void Translate (const Vector4 &v) { m[3][0] = v.x; m[3][1] = v.y; m[3][2] = v.z; }
 };
 
 struct Color { unsigned char b, g, r, a; };
@@ -257,7 +259,10 @@ struct Model {
 	std::vector<Vector4> posBuffer, normalBuffer, uvBuffer;
 	std::vector<Index> indexBuffer;
 	Texture diffTexture;
-	Model (std::string str) : diffTexture (str + ".bmp") {
+	Matrix4 mat;
+	Model (std::string str, const Vector4 &translate) : diffTexture (str + ".bmp") {
+		mat.Translate (translate);
+
 		float x, y, z;
 		char dummy;
 		std::ifstream is (str + ".obj");
@@ -288,9 +293,10 @@ struct Model {
 struct Renderer {
 	std::vector<Color> frameBuffer;
 	std::vector<float> depthBuffer;
-	Renderer (int width, int height) : frameBuffer (width * height, { 0, 0, 0, 0 }), depthBuffer (width * height, std::numeric_limits<float>::max ()) { }
-	void DrawModel (Matrix4 projMat, Matrix4 viewMat, Model &model, bool wireframe = false) {
-		Matrix4 mvp = viewMat * projMat;
+	Matrix4 projMat;
+	Renderer (int width, int height, const Matrix4 &pm) : frameBuffer (width * height, { 0, 0, 0, 0 }), depthBuffer (width * height, std::numeric_limits<float>::max ()), projMat (pm) { }
+	void DrawModel (Matrix4 viewMat, Model &model, bool drawTex = true, bool drawWireFrame = false) {
+		Matrix4 mvp = model.mat * viewMat * projMat;
 		auto VertexShader = [&mvp] (const Vector4 &pos, const Vector4 &, const Vector4 &uv, Vertex &outVertex) {
 			outVertex.pos = mvp * pos;
 			outVertex.uv = uv;
@@ -303,16 +309,16 @@ struct Renderer {
                 ov[i].pos.y = (ov[i].pos.y + 1)* 0.5f * HEIGHT;
 				ov[i].pos.z = ov[i].pos.w;
 			}
-            wireframe ? DrawTriangle (ov[0], ov[1], ov[2]) : FillTriangle (model, ov[0], ov[1], ov[2]);
-            DrawTriangle (ov[0], ov[1], ov[2]);
+            if (drawTex) FillTriangle (model, ov[0], ov[1], ov[2]);
+			if (drawWireFrame) DrawTriangle (ov[0], ov[1], ov[2], { 0, 255, 0, 0 });
 		}
 	}
-	void DrawTriangle (const Vertex &v0, const Vertex &v1, const Vertex &v2) {
-		DrawLine (v0, v1);
-		DrawLine (v1, v2);
-		DrawLine (v0, v2);
+	void DrawTriangle (const Vertex &v0, const Vertex &v1, const Vertex &v2, const Color &color) {
+		DrawLine (v0, v1, color);
+		DrawLine (v1, v2, color);
+		DrawLine (v0, v2, color);
 	}
-    void DrawLine (const Vertex &v0, const Vertex &v1) {
+    void DrawLine (const Vertex &v0, const Vertex &v1, const Color &color) {
         int x0 = (int)round (v0.pos.x), y0 = (int)round (v0.pos.y), x1 = (int)round (v1.pos.x), y1 = (int)round (v1.pos.y), octant = CalcOctant (x0, y0, x1, y1);
         SwitchToOctantZeroFrom (octant, x0, y0);
         SwitchToOctantZeroFrom (octant, x1, y1);
@@ -320,8 +326,8 @@ struct Renderer {
         for (int x = x0 + 1; x <= x1; x++, y += delta) {
 			int ix = x, iy = (int)round (y);
 			SwitchFromOctantZeroTo (octant, ix, iy);
-			if (ix >= 0 && iy >= 0 && (ix + iy * WIDTH) < frameBuffer.size ()) {
-				frameBuffer[ix + iy * WIDTH] = { 0, 255, 0, 0 };
+			if (ix >= 0 && ix < WIDTH && iy >= 0 && iy < HEIGHT) {
+				frameBuffer[ix + iy * WIDTH] = color;
 				depthBuffer[ix + iy * WIDTH] = 0;
 			}
         }
@@ -330,38 +336,26 @@ struct Renderer {
 		auto PixelShader = [] (const Color &diffColor, Color &outColor) {
 			outColor = diffColor;
 		};
-        
 
-		float z0 = 1.0f / v0.pos.z;
-		float z1 = 1.0f / v1.pos.z;
-		float z2 = 1.0f / v2.pos.z;
-        float s0 = v0.uv.x * z0;
-        float t0 = v0.uv.y * z0;
-        float s1 = v1.uv.x * z1;
-        float t1 = v1.uv.y * z1;
-        float s2 = v2.uv.x * z2;
-        float t2 = v2.uv.y * z2;
-
-		float area = EdgeFunc (v0.pos, v1.pos, v2.pos);
+		float w = EdgeFunc (v0.pos, v1.pos, v2.pos);
         int x0 = std::max (0, (int)std::floor (std::min (v0.pos.x, std::min (v1.pos.x, v2.pos.x))));
         int y0 = std::max (0, (int)std::floor (std::min (v0.pos.y, std::min (v1.pos.y, v2.pos.y))));
-        int x1 = std::max (WIDTH - 1, (int)std::floor (std::max (v0.pos.x, std::max (v1.pos.x, v2.pos.x))));
-        int y1 = std::max (HEIGHT - 1, (int)std::floor (std::max (v0.pos.y, std::max (v1.pos.y, v2.pos.y))));
+        int x1 = std::min (WIDTH - 1, (int)std::floor (std::max (v0.pos.x, std::max (v1.pos.x, v2.pos.x))));
+        int y1 = std::min (HEIGHT - 1, (int)std::floor (std::max (v0.pos.y, std::max (v1.pos.y, v2.pos.y))));
         for (int y = y0; y <= y1; y++) {
             for (int x = x0; x <= x1; x++) {
                 Vector4 v = { x + 0.5f, y + 0.5f, 0 };
-                float w0 = EdgeFunc (v1.pos, v2.pos, v) / area, w1 = EdgeFunc (v2.pos, v0.pos, v) / area, w2 = EdgeFunc (v0.pos, v1.pos, v) / area;
+                float w0 = EdgeFunc (v1.pos, v2.pos, v) / w, w1 = EdgeFunc (v2.pos, v0.pos, v) / w, w2 = EdgeFunc (v0.pos, v1.pos, v) / w;
                 if (w0 >= 0 && w1 >= 0 && w2 >= 0) {
-					int p = x + y * WIDTH;
-                    float z = 1.0f / (w0 * z0 + w1 * z1 + w2 * z2);
-                    if (z >= depthBuffer[p]) continue;
-                    depthBuffer[p] = z;
+                    float z = 1.0f / (w0 / v0.pos.z + w1 / v1.pos.z + w2 / v2.pos.z);
+                    if (z >= depthBuffer[x + y * WIDTH]) continue;
+                    depthBuffer[x + y * WIDTH] = z;
 
 					Color outColor;
-                    float s = (s0 * w0 + s1 * w1 + s2 * w2) * z;
-                    float t = (t0 * w0 + t1 * w1 + t2 * w2) * z;
+                    float s = (w0 * v0.uv.x / v0.pos.z + w1 * v1.uv.x / v1.pos.z + w2 * v2.uv.x / v2.pos.z) * z;
+					float t = (w0 * v0.uv.y / v0.pos.z + w1 * v1.uv.y / v1.pos.z + w2 * v2.uv.y / v2.pos.z) * z;
                     PixelShader (model.diffTexture.data[(int)std::floor (s * model.diffTexture.width) + (int)std::floor (t  * model.diffTexture.height) * model.diffTexture.width], outColor);
-					frameBuffer[p] = outColor;
+					frameBuffer[x + y * WIDTH] = outColor;
                 }
             }
         }
@@ -370,9 +364,9 @@ struct Renderer {
 };
 
 int main () {
-	Renderer renderer (WIDTH, HEIGHT);
-	Model model ("cube");
-	renderer.DrawModel (CreateProjectionMatrix ((float)M_PI_2, (float)WIDTH / (float)HEIGHT, 0.1f, 1000.0f), CreateViewMatrix ({ 0.8f, 1.2f, 1.4f }, { 0.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }), model, false);
+	Renderer renderer (WIDTH, HEIGHT, CreateProjectionMatrix ((float)M_PI_2, (float)WIDTH / (float)HEIGHT, 0.1f, 1000.0f));
+	Model model ("cube", { 0.5f, 0.0f, 0.0f });
+	renderer.DrawModel (CreateViewMatrix ({ -0.5f, 1.2f, 1.4f }, { 0.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }), model);
 	SaveBmp (renderer.frameBuffer, WIDTH, HEIGHT, "screenshot.bmp");
 	return 0;
 }
