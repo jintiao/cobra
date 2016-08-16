@@ -260,7 +260,7 @@ struct Model {
 	std::vector<Index> indexBuffer;
 	Texture diffTexture;
 	Matrix4 mat;
-	Model (std::string str, const Vector4 &translate) : diffTexture (str + ".bmp") {
+	Model (std::string str, const Vector4 &translate) : diffTexture (str + ".bmp"), posBuffer (1, { 0 }), normalBuffer (1, { 0 }), uvBuffer (1, { 0 }) {
 		mat.Translate (translate);
 
 		float x, y, z;
@@ -280,11 +280,31 @@ struct Model {
 				iss >> token >> x >> y >> z;
 				posBuffer.push_back ({ x, y, z });
 			} else if (str[0] == 'f') {
-				Index index;
-				iss >> token >> index.pos[0] >> dummy >> index.uv[0] >> dummy >> index.normal[0] >>
-					index.pos[1] >> dummy >> index.uv[1] >> dummy >> index.normal[1] >>
-					index.pos[2] >> dummy >> index.uv[2] >> dummy >> index.normal[2];
+				Index index = { 0 };
+				if (str.find ("//") != std::string::npos) {
+					iss >> token >> index.pos[0] >> dummy >> dummy >> index.normal[0] >>
+						index.pos[1] >> dummy >> dummy >> index.normal[1] >>
+						index.pos[2] >> dummy >> dummy >> index.normal[2];
+				}
+				else {
+					size_t count = 0, pos = str.find ('/');
+					while (pos != std::string::npos) { count++; pos = str.find ('/', pos + 1); }
+					if (count == 6) {
+						iss >> token >> index.pos[0] >> dummy >> index.uv[0] >> dummy >> index.normal[0] >>
+							index.pos[1] >> dummy >> index.uv[1] >> dummy >> index.normal[1] >>
+							index.pos[2] >> dummy >> index.uv[2] >> dummy >> index.normal[2];
+					} else if (count == 3) {
+						iss >> token >> index.pos[0] >> dummy >> index.uv[0] >> index.pos[1] >> dummy >> index.uv[1] >> index.pos[2] >> dummy >> index.uv[2];
+					}
+				}
 				indexBuffer.push_back (index);
+			}
+		}
+		for (auto &index : indexBuffer) {
+			for (int i = 0; i < 3; i++) {
+				if (index.pos[i] < 0) index.pos[i] += (int)posBuffer.size ();
+				if (index.uv[i] < 0) index.uv[i] += (int)uvBuffer.size ();
+				if (index.normal[i] < 0) index.normal[i] += (int)normalBuffer.size ();
 			}
 		}
 	}
@@ -304,7 +324,7 @@ struct Renderer {
 		for (auto &index : model.indexBuffer) {
 			Vertex ov[3];
 			for (int i = 0; i < 3; i++) {
-				VertexShader (model.posBuffer[index.pos[i] - 1], model.normalBuffer[index.normal[i] - 1], model.uvBuffer[index.uv[i] - 1], ov[i]);
+				VertexShader (model.posBuffer[index.pos[i]], model.normalBuffer[index.normal[i]], model.uvBuffer[index.uv[i]], ov[i]);
                 ov[i].pos.x = (ov[i].pos.x + 1)* 0.5f * WIDTH ;
                 ov[i].pos.y = (ov[i].pos.y + 1)* 0.5f * HEIGHT;
 				ov[i].pos.z = ov[i].pos.w;
@@ -314,9 +334,7 @@ struct Renderer {
 		}
 	}
 	void DrawTriangle (const Vertex &v0, const Vertex &v1, const Vertex &v2, const Color &color) {
-		DrawLine (v0, v1, color);
-		DrawLine (v1, v2, color);
-		DrawLine (v0, v2, color);
+		DrawLine (v0, v1, color); DrawLine (v1, v2, color); DrawLine (v0, v2, color);
 	}
     void DrawLine (const Vertex &v0, const Vertex &v1, const Color &color) {
         int x0 = (int)round (v0.pos.x), y0 = (int)round (v0.pos.y), x1 = (int)round (v1.pos.x), y1 = (int)round (v1.pos.y), octant = CalcOctant (x0, y0, x1, y1);
@@ -349,13 +367,16 @@ struct Renderer {
                 if (w0 >= 0 && w1 >= 0 && w2 >= 0) {
                     float z = 1.0f / (w0 / v0.pos.z + w1 / v1.pos.z + w2 / v2.pos.z);
                     if (z >= depthBuffer[x + y * WIDTH]) continue;
-                    depthBuffer[x + y * WIDTH] = z;
-
 					Color outColor;
                     float s = (w0 * v0.uv.x / v0.pos.z + w1 * v1.uv.x / v1.pos.z + w2 * v2.uv.x / v2.pos.z) * z;
 					float t = (w0 * v0.uv.y / v0.pos.z + w1 * v1.uv.y / v1.pos.z + w2 * v2.uv.y / v2.pos.z) * z;
+					while (s >= 1.0f) s -= 1.0f;
+					while (s < 0.0f) s += 1.0f;
+					while (t >= 1.0f) t -= 1.0f;
+					while (t < 0.0f) t += 1.0f;
                     PixelShader (model.diffTexture.data[(int)std::floor (s * model.diffTexture.width) + (int)std::floor (t  * model.diffTexture.height) * model.diffTexture.width], outColor);
 					frameBuffer[x + y * WIDTH] = outColor;
+					depthBuffer[x + y * WIDTH] = z;
                 }
             }
         }
@@ -365,8 +386,8 @@ struct Renderer {
 
 int main () {
 	Renderer renderer (WIDTH, HEIGHT, CreateProjectionMatrix ((float)M_PI_2, (float)WIDTH / (float)HEIGHT, 0.1f, 1000.0f));
-	Model model ("cube", { 0.5f, 0.0f, 0.0f });
-	renderer.DrawModel (CreateViewMatrix ({ -0.5f, 1.2f, 1.4f }, { 0.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }), model);
+	Model model ("cube", { 0.0f, 0.0f, 0.0f });
+	renderer.DrawModel (CreateViewMatrix ({ 0.0f, 1.2f, 1.4f }, { 0.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }), model, true, false);
 	SaveBmp (renderer.frameBuffer, WIDTH, HEIGHT, "screenshot.bmp");
 	return 0;
 }
