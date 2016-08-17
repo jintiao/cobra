@@ -138,11 +138,11 @@ Matrix4 CreateProjectionMatrix (float fov, float ratio, float n, float f) {
 	return mat;
 }
 Matrix4 CreateViewMatrix (const Vector4 &look, const Vector4 &at, const Vector4 &up) {
-	Vector4 dir = (look - at).Normalize (), left = up.Cross (dir).Normalize (), newUp = dir.Cross (left);
+	Vector4 zaxis = (look - at).Normalize (), xzaxis = up.Cross (zaxis).Normalize (), yzaxis = zaxis.Cross (xzaxis);
 	Matrix4 mat;
-	mat.m[0][0] = left.x; mat.m[0][1] = left.y; mat.m[0][2] = left.z; mat.m[0][3] = 0.0f;
-	mat.m[1][0] = newUp.x; mat.m[1][1] = newUp.y; mat.m[1][2] = newUp.z; mat.m[1][3] = 0.0f;
-	mat.m[2][0] = dir.x; mat.m[2][1] = dir.y; mat.m[2][2] = dir.z; mat.m[2][3] = 0.0f;
+	mat.m[0][0] = xzaxis.x; mat.m[0][1] = xzaxis.y; mat.m[0][2] = xzaxis.z; mat.m[0][3] = 0.0f;
+	mat.m[1][0] = yzaxis.x; mat.m[1][1] = yzaxis.y; mat.m[1][2] = yzaxis.z; mat.m[1][3] = 0.0f;
+	mat.m[2][0] = zaxis.x; mat.m[2][1] = zaxis.y; mat.m[2][2] = zaxis.z; mat.m[2][3] = 0.0f;
 	mat.m[3][0] = look.x; mat.m[3][1] = look.y; mat.m[3][2] = look.z; mat.m[3][3] = 1.0f;
 	mat.Invert ();
 	return mat;
@@ -151,7 +151,7 @@ Matrix4 CreateViewMatrix (const Vector4 &look, const Vector4 &at, const Vector4 
 struct Vertex { Vector4 pos, uv, normal, viewPos, color; };
 struct Index { int pos[3], uv[3], normal[3]; };
 struct Texture { int width, height; std::vector<Vector4> data; };
-struct Light { Vector4 pos, ambientColor, diffuseColor, specularColor; };
+struct Light { Vector4 dir, ambientColor, diffuseColor, specularColor; };
 
 void SaveBmp (std::vector<Vector4> &frameBuffer, int width, int height, std::string file) {
 #define INT2CHAR_BIT(num, bit) (unsigned char)(((num) >> (bit)) & 0xff)
@@ -182,7 +182,7 @@ bool LoadBmp (Texture &texture, std::string file) {
 		color = { tmp[count + 2] / 255.0f, tmp[count + 1] / 255.0f, tmp[count + 0] / 255.0f, 0.0f };
 		count += bytes;
 	}
-	delete tmp;
+	delete []tmp;
     return true;
 }
 
@@ -254,15 +254,16 @@ struct Renderer {
 	int width, height;
 	std::vector<Vector4> frameBuffer;
 	std::vector<float> depthBuffer;
-	Matrix4 projMat, mvMat, mvpMat, nmvMat;
+	Matrix4 projMat, viewMat, mvMat, mvpMat, nmvMat;
     Light light;
 
 	Renderer (int w, int h, const Matrix4 &pm) : width (w), height (h), frameBuffer (w * h, { 0, 0, 0, 0 }), depthBuffer (w * h, std::numeric_limits<float>::max ()), projMat (pm) { }
-	void SetLight (const Vector4 &pos, const Vector4 &ambi, const Vector4 &diff, const Vector4 &spec) { light.pos = pos; light.ambientColor = ambi; light.diffuseColor = diff;
+	void SetLight (const Vector4 &dir, const Vector4 &ambi, const Vector4 &diff, const Vector4 &spec) { light.dir = dir; light.ambientColor = ambi; light.diffuseColor = diff;
 	light.specularColor = spec;
 	}
+    void SetCamera (const Vector4 &look, const Vector4 &at) { viewMat = CreateViewMatrix (look, at, { 0.0f, 1.0f, 0.0f }); }
 
-	void DrawModel (Matrix4 viewMat, Model &model, bool drawTex = true, bool drawWireFrame = false) {
+	void DrawModel (Model &model, bool drawTex = true, bool drawWireFrame = false) {
 		mvMat = model.worldMat * viewMat, mvpMat = mvMat * projMat;
 		nmvMat = mvMat;  nmvMat.Invert (); nmvMat = nmvMat.Transpose ();
 		auto VertexShader = [this] (const Vector4 &pos, const Vector4 &normal, const Vector4 &uv, Vertex &outVertex) {
@@ -288,7 +289,7 @@ struct Renderer {
 	void FillTriangle (Model &model, const Vertex &v0, const Vertex &v1, const Vertex &v2) {
 		auto PixelShader = [&model, this] (Vertex &v) -> Vector4 {
 			auto normal = v.normal.Normalize ();
-			auto ldir = (light.pos - v.viewPos).Normalize ();
+			auto ldir = light.dir.Normalize ();
 			auto lambertian = std::max (0.0f, ldir.Dot (normal));
 			auto specular = 0.0f;
 			if (lambertian > 0) {
@@ -301,7 +302,7 @@ struct Renderer {
 			Vector4 difC = { 0.87f, 0.87f, 0.87f, 0 };
 			if (!model.diffTex.data.empty ()) 
 				difC = model.diffTex.data[(int)std::floor (v.uv.x * model.diffTex.width) + (int)std::floor (v.uv.y * model.diffTex.height) * model.diffTex.width];
-			Vector4 c = difC * light.ambientColor + difC * lambertian + light.specularColor * specular;
+			Vector4 c = difC * 0.7f + (light.ambientColor + light.diffuseColor * lambertian + light.specularColor * specular) * 0.3f;
 			c.x = std::pow (c.x, 1.0f / 2.2f);
 			c.y = std::pow (c.y, 1.0f / 2.2f);
 			c.z = std::pow (c.z, 1.0f / 2.2f);
@@ -317,8 +318,7 @@ struct Renderer {
                 Vertex v = { { x + 0.5f, y + 0.5f, 0 } };
                 if (!Interpolate (v0, v1, v2, v, area)) continue;
                 if (v.pos.z >= depthBuffer[x + y * width]) continue;
-                frameBuffer[x + y * width] = PixelShader (v);
-                depthBuffer[x + y * width] = v.pos.z;
+                DrawPoint (x, y, PixelShader (v), v.pos.z);
             }
         }
 	}
@@ -338,129 +338,56 @@ struct Renderer {
     static inline float EdgeFunc (const Vector4 &p0, const Vector4 &p1, const Vector4 &p2) { return ((p2.x - p0.x) * (p1.y - p0.y) - (p2.y - p0.y) * (p1.x - p0.x)); }
 
 	void DrawTriangle (const Vertex &v0, const Vertex &v1, const Vertex &v2, const Vector4 &color) {
-		DrawLine (v0, v1, color); DrawLine (v1, v2, color); DrawLine (v0, v2, color);
+		DrawLine (v0.pos, v1.pos, color); DrawLine (v1.pos, v2.pos, color); DrawLine (v0.pos, v2.pos, color);
 	}
-	void DrawLine (const Vertex &v0, const Vertex &v1, const Vector4 &color) {
-		int x0 = (int)round (v0.pos.x), y0 = (int)round (v0.pos.y), x1 = (int)round (v1.pos.x), y1 = (int)round (v1.pos.y), octant = CalcOctant (x0, y0, x1, y1);
-		SwitchToOctantZeroFrom (octant, x0, y0);
-		SwitchToOctantZeroFrom (octant, x1, y1);
-		float dx = (float)(x1 - x0), dy = (float)(y1 - y0), y = (float)y0, delta = dy / dx;
-		for (int x = x0 + 1; x <= x1; x++, y += delta) {
-			int ix = x, iy = (int)round (y);
-			SwitchFromOctantZeroTo (octant, ix, iy);
-			if (ix >= 0 && ix < width && iy >= 0 && iy < height) {
-				frameBuffer[ix + iy * width] = color;
-				depthBuffer[ix + iy * width] = 0;
-			}
-		}
-	}
-	static int CalcOctant (int x0, int y0, int x1, int y1)
-	{
-		int x = x1 - x0, y = y1 - y0;
-		if (x >= 0)
-		{
-			if (y >= 0)
-			{
-				if (x > y)
-					return 0;
-				else
-					return 1;
-			} else
-			{
-				if (x > -y)
-					return 7;
-				else
-					return 6;
-			}
-		} else
-		{
-			if (y >= 0)
-			{
-				if (-x > y)
-					return 3;
-				else
-					return 2;
-			} else
-			{
-				if (x > y)
-					return 5;
-				else
-					return 4;
-			}
-		}
-	}
-	static void SwitchToOctantZeroFrom (int octant, int &x, int &y)
-	{
-		switch (octant)
-		{
-		case 1:
-			std::swap (x, y);
-			break;
-		case 2:
-			x = -x;
-			std::swap (x, y);
-			break;
-		case 3:
-			x = -x;
-			break;
-		case 4:
-			x = -x;
-			y = -y;
-			break;
-		case 5:
-			x = -x;
-			y = -y;
-			std::swap (x, y);
-			break;
-		case 6:
-			y = -y;
-			std::swap (x, y);
-			break;
-		case 7:
-			y = -y;
-			break;
-		}
-	}
-	static void SwitchFromOctantZeroTo (int octant, int &x, int &y)
-	{
-		switch (octant)
-		{
-		case 1:
-			std::swap (x, y);
-			break;
-		case 2:
-			y = -y;
-			std::swap (x, y);
-			break;
-		case 3:
-			x = -x;
-			break;
-		case 4:
-			x = -x;
-			y = -y;
-			break;
-		case 5:
-			x = -x;
-			y = -y;
-			std::swap (x, y);
-			break;
-		case 6:
-			x = -x;
-			std::swap (x, y);
-			break;
-		case 7:
-			y = -y;
-			break;
-		}
-	}
+    void DrawLine (const Vector4 &p0, const Vector4 &p1, const Vector4 &color) {
+        int x0 = (int)std::floor(p0.x);
+        int x1 = (int)std::floor(p1.x);
+        int y0 = (int)std::floor(p0.y);
+        int y1 = (int)std::floor(p1.y);
+        if (abs (x1 - x0) >= abs (y1 - y0)) {
+            if (x0 > x1) { std::swap (x0, x1); std::swap (y0, y1); }
+            DrawLineInternal (x0, y0, x1, y1, color, false);
+        }
+        else {
+            if (y0 > y1) { std::swap (x0, x1); std::swap (y0, y1); }
+            DrawLineInternal (y0, x0, y1, x1, color, true);
+        }
+    }
+    void DrawLineInternal (int x0, int y0, int x1, int y1, const Vector4 &color, bool steep) {
+        int dx = x1 - x0, dy = abs (y1 - y0), ystep = dy / (y1 - y0), delta = dy - dx, y = y0;
+        for (int x = x0; x <= x1; x++, delta += dy) {
+            steep ? DrawPoint (y, x, color, 0) : DrawPoint (x, y, color, 0);
+            if (delta >= 0) {
+                y += ystep;
+                delta -= dx;
+            }
+        }
+    }
+    void DrawPoint (int x, int y, const Vector4 &color, float z) {
+        if (x >= 0 && x < width && y >= 0 && y < height) {
+            frameBuffer[x + y * width] = color;
+            depthBuffer[x + y * width] = z;
+        }
+    }
 };
 
 int main () {
 	const int WIDTH = 1024, HEIGHT = 768;
-	Model model ("cube", { 0.0f, 0.0f, 0.0f });
 	Renderer renderer (WIDTH, HEIGHT, CreateProjectionMatrix ((float)M_PI_2, (float)WIDTH / (float)HEIGHT, 0.1f, 1000.0f));
-	renderer.SetLight ({ model.upperBound.x * 0.75f, model.upperBound.y * 3.0f, model.upperBound.z * 1.5f }, { 0.1f, 0.0f, 0.0f, 0 }, { 1.0f, 0, 0, 0 }, { 1.0f, 1.0f, 1.0f, 0 });
-	renderer.DrawModel (CreateViewMatrix ({ model.upperBound.x * 0.5f, model.upperBound.y * 1.5f, model.upperBound.z * 3.0f }, { 0.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }), model, true, false);
+	renderer.SetLight ({ 0.0f, 1.0f, -1.0f }, { 0.1f, 0.1f, 0.1f, 0 }, { 0.5f, 0.5, 0, 0 }, { 1.0f, 1.0f, 1.0f, 0 });
+    renderer.SetCamera({ 10.7f, 1.0f, 11.0f }, { 10.0f, 0.0f, 10.0f });
+	/*
+    for (int i = 0; i < 5; i++) {
+        for (int j = 0; j < 5; j++) {
+            Model model ("sphere", { i * 5.0f, 0.0f, j * 5.0f });
+            renderer.DrawModel (model, true, false);
+        }
+    }
+    */
+    Model model ("cube", { 10.0f, 0.0f, 10.0f });
+    renderer.DrawModel (model, true, false);
+
 	SaveBmp (renderer.frameBuffer, WIDTH, HEIGHT, "screenshot.bmp");
 	return 0;
 }
