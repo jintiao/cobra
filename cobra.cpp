@@ -151,6 +151,7 @@ Matrix4 CreateViewMatrix (const Vector4 &look, const Vector4 &at, const Vector4 
 struct Vertex { Vector4 pos, uv, normal, viewPos, color; };
 struct Index { int pos[3], uv[3], normal[3]; };
 struct Texture { int width, height; std::vector<Vector4> data; };
+struct Light { Vector4 pos, ambientColor, diffuseColor, specularColor; };
 
 void SaveBmp (std::vector<Vector4> &frameBuffer, int width, int height, std::string file) {
 #define INT2CHAR_BIT(num, bit) (unsigned char)(((num) >> (bit)) & 0xff)
@@ -189,6 +190,7 @@ struct Model {
 	std::vector<Vector4> posBuffer, normalBuffer, uvBuffer;
 	std::vector<Index> indexBuffer;
 	Texture diffTex;
+	Vector4 upperBound = { std::numeric_limits<float>::min (), std::numeric_limits<float>::min (), std::numeric_limits<float>::min (), 0};
 	Matrix4 worldMat;
 	Model (std::string name, const Vector4 &pos) : posBuffer (1, { 0 }), normalBuffer (1, { 0 }), uvBuffer (1, { 0 }) {
 		worldMat.Translate (pos);
@@ -240,10 +242,13 @@ struct Model {
 			}
 		}
 		for (auto &uv : uvBuffer) Clamp (uv, 0.0f, 0.999999f);
+		for (auto &pos : posBuffer) {
+			upperBound.x = std::max (upperBound.x, pos.x);
+			upperBound.y = std::max (upperBound.y, pos.y);
+			upperBound.z = std::max (upperBound.z, pos.z);
+		}
 	}
 };
-
-struct Light { Vector4 pos, ambientColor, diffuseColor, specularColor; };
 
 struct Renderer {
 	int width, height;
@@ -289,7 +294,7 @@ struct Renderer {
 			if (lambertian > 0) {
 				auto viewDir = (v.viewPos * -1).Normalize ();
 				auto halfDir = (ldir + viewDir).Normalize ();
-				auto specAngle = std::max (0.0f, halfDir.Dot (normal));
+				auto specAngle = std::max (0.0f, std::min (1.0f, halfDir.Dot (normal)));
 				specular = std::pow (specAngle, 16.0f);
 			}
 
@@ -452,10 +457,10 @@ struct Renderer {
 
 int main () {
 	const int WIDTH = 1024, HEIGHT = 768;
-	Renderer renderer (WIDTH, HEIGHT, CreateProjectionMatrix ((float)M_PI_2, (float)WIDTH / (float)HEIGHT, 0.1f, 1000.0f));
-    renderer.SetLight ({ -1.5f, 1.0f, 0.5f }, { 0.1f, 0.0f, 0.0f, 0 } , { 1.0f, 0, 0, 0 }, { 1.0f, 1.0f, 1.0f, 0 });
 	Model model ("cube", { 0.0f, 0.0f, 0.0f });
-	renderer.DrawModel (CreateViewMatrix ({ 1.2f, 1.0f, 1.5f }, { 0.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }), model, true, false);
+	Renderer renderer (WIDTH, HEIGHT, CreateProjectionMatrix ((float)M_PI_2, (float)WIDTH / (float)HEIGHT, 0.1f, 1000.0f));
+	renderer.SetLight ({ model.upperBound.x * 0.75f, model.upperBound.y * 3.0f, model.upperBound.z * 1.5f }, { 0.1f, 0.0f, 0.0f, 0 }, { 1.0f, 0, 0, 0 }, { 1.0f, 1.0f, 1.0f, 0 });
+	renderer.DrawModel (CreateViewMatrix ({ model.upperBound.x * 0.5f, model.upperBound.y * 1.5f, model.upperBound.z * 3.0f }, { 0.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }), model, true, false);
 	SaveBmp (renderer.frameBuffer, WIDTH, HEIGHT, "screenshot.bmp");
 	return 0;
 }
