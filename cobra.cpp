@@ -7,9 +7,9 @@
 #include <string>
 #include <vector>
 
-struct Index { int pos[3], uv[3], normal[3]; };
 struct Vector4 {
 	float x, y, z, w;
+	Vector4 operator- () const { return{ -x, -y, -z, -w }; }
 	Vector4 operator+ (const Vector4 &rhs) const { return{ x + rhs.x, y + rhs.y, z + rhs.z, w + rhs.w }; }
 	Vector4 operator- (const Vector4 &rhs) const { return { x - rhs.x, y - rhs.y, z - rhs.z, w - rhs.w }; }
 	Vector4 operator* (const Vector4 &rhs) const { return{ x* rhs.x, y * rhs.y, z * rhs.z, w * rhs.w }; }
@@ -18,8 +18,13 @@ struct Vector4 {
 	float Dot (const Vector4 &rhs) const { return (x * rhs.x + y * rhs.y + z * rhs.z); }
 	Vector4 Normalize () const { float invlen = 1.0f / sqrtf (x * x + y * y + z * z); return { x * invlen, y * invlen, z * invlen }; };
 };
-struct Vertex { Vector4 pos, uv, normal, viewPos, color; };
-struct Texture { int width, height; std::vector<Vector4> data; };
+static inline void Clamp (Vector4 &v, float lower, float upper) {
+	v.x = std::min (upper, std::max (lower, v.x));
+	v.y = std::min (upper, std::max (lower, v.y));
+	v.z = std::min (upper, std::max (lower, v.z));
+	v.w = std::min (upper, std::max (lower, v.w));
+}
+
 struct Matrix4 {
 	float m[4][4];
 	Matrix4 () { memset (m, 0, sizeof (m)); m[0][0] = m[1][1] = m[2][2] = m[3][3] = 1.0f; }
@@ -143,6 +148,10 @@ Matrix4 CreateViewMatrix (const Vector4 &look, const Vector4 &at, const Vector4 
 	return mat;
 }
 
+struct Vertex { Vector4 pos, uv, normal, viewPos, color; };
+struct Index { int pos[3], uv[3], normal[3]; };
+struct Texture { int width, height; std::vector<Vector4> data; };
+
 void SaveBmp (std::vector<Vector4> &frameBuffer, int width, int height, std::string file) {
 #define INT2CHAR_BIT(num, bit) (unsigned char)(((num) >> (bit)) & 0xff)
 #define INT2CHAR(num) INT2CHAR_BIT((num),0), INT2CHAR_BIT((num),8), INT2CHAR_BIT((num),16), INT2CHAR_BIT((num),24)
@@ -230,6 +239,7 @@ struct Model {
 				if (index.normal[i] < 0) index.normal[i] += (int)normalBuffer.size ();
 			}
 		}
+		for (auto &uv : uvBuffer) Clamp (uv, 0.0f, 0.999999f);
 	}
 };
 
@@ -260,14 +270,15 @@ struct Renderer {
 			Vertex ov[3];
 			for (int i = 0; i < 3; i++) {
 				VertexShader (model.posBuffer[index.pos[i]], model.normalBuffer[index.normal[i]], model.uvBuffer[index.uv[i]], ov[i]);
-                ov[i].pos.x = (ov[i].pos.x + 1)* 0.5f * width;
-                ov[i].pos.y = (ov[i].pos.y + 1)* 0.5f * height;
-				ov[i].pos.z = ov[i].pos.w;
+				Proj2Screen (ov[i].pos);
 			}
+			if (BackFaceCulling (ov[0].viewPos, ov[1].viewPos, ov[2].viewPos)) continue;
             if (drawTex) FillTriangle (model, ov[0], ov[1], ov[2]);
 			if (drawWireFrame) DrawTriangle (ov[0], ov[1], ov[2], { 0, 1.0f, 0, 0 });
 		}
 	}
+	inline void Proj2Screen (Vector4 &pos) { pos.x = (pos.x + 1)* 0.5f * width; pos.y = (pos.y + 1)* 0.5f * height; pos.z = pos.w; }
+	static inline bool BackFaceCulling (const Vector4 &p0, const Vector4 &p1, const Vector4 &p2) { return (p0.Dot ((p1 - p0).Cross (p2 - p0)) >= 0); }
 
 	void FillTriangle (Model &model, const Vertex &v0, const Vertex &v1, const Vertex &v2) {
 		auto PixelShader = [&model, this] (Vertex &v) -> Vector4 {
@@ -314,12 +325,9 @@ struct Renderer {
         v.pos.z = 1.0f / (w0 / v0.pos.z + w1 / v1.pos.z + w2 / v2.pos.z);
 		v.viewPos = ((v0.viewPos * (w0 / v0.pos.z) + v1.viewPos * (w1 / v1.pos.z) + v2.viewPos * (w2 / v2.pos.z))) * v.pos.z;
 		v.normal = ((v0.normal * (w0 / v0.pos.z) + v1.normal * (w1 / v1.pos.z) + v2.normal * (w2 / v2.pos.z))) * v.pos.z;
-        v.uv.x = std::min (0.999999f, std::max (0.0f, (w0 * v0.uv.x / v0.pos.z + w1 * v1.uv.x / v1.pos.z + w2 * v2.uv.x / v2.pos.z) * v.pos.z));
-        v.uv.y = std::min (0.999999f, std::max (0.0f, (w0 * v0.uv.y / v0.pos.z + w1 * v1.uv.y / v1.pos.z + w2 * v2.uv.y / v2.pos.z) * v.pos.z));
-        v.color.x = (unsigned char)((w0 * v0.color.x / v0.pos.z + w1 * v1.color.x / v1.pos.z + w2 * v2.color.x / v2.pos.z) * v.pos.z);
-        v.color.y = (unsigned char)((w0 * v0.color.y / v0.pos.z + w1 * v1.color.y / v1.pos.z + w2 * v2.color.y / v2.pos.z) * v.pos.z);
-        v.color.z = (unsigned char)((w0 * v0.color.z / v0.pos.z + w1 * v1.color.z / v1.pos.z + w2 * v2.color.z / v2.pos.z) * v.pos.z);
-        v.color.w = (unsigned char)((w0 * v0.color.w / v0.pos.z + w1 * v1.color.w / v1.pos.z + w2 * v2.color.w / v2.pos.z) * v.pos.z);
+		v.color = ((v0.color * (w0 / v0.pos.z) + v1.color * (w1 / v1.pos.z) + v2.color * (w2 / v2.pos.z))) * v.pos.z;
+		v.uv = ((v0.uv * (w0 / v0.pos.z) + v1.uv * (w1 / v1.pos.z) + v2.uv * (w2 / v2.pos.z))) * v.pos.z;
+		Clamp (v.uv, 0.0f, 0.999999f);
         return true;
     }
     static inline float EdgeFunc (const Vector4 &p0, const Vector4 &p1, const Vector4 &p2) { return ((p2.x - p0.x) * (p1.y - p0.y) - (p2.y - p0.y) * (p1.x - p0.x)); }
@@ -447,7 +455,7 @@ int main () {
 	Renderer renderer (WIDTH, HEIGHT, CreateProjectionMatrix ((float)M_PI_2, (float)WIDTH / (float)HEIGHT, 0.1f, 1000.0f));
     renderer.SetLight ({ -1.5f, 1.0f, 0.5f }, { 0.1f, 0.0f, 0.0f, 0 } , { 1.0f, 0, 0, 0 }, { 1.0f, 1.0f, 1.0f, 0 });
 	Model model ("cube", { 0.0f, 0.0f, 0.0f });
-	renderer.DrawModel (CreateViewMatrix ({ 3.2f, 3.0f, 3.5f }, { 0.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }), model, true, false);
+	renderer.DrawModel (CreateViewMatrix ({ 1.2f, 1.0f, 1.5f }, { 0.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }), model, true, false);
 	SaveBmp (renderer.frameBuffer, WIDTH, HEIGHT, "screenshot.bmp");
 	return 0;
 }
