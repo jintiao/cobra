@@ -18,12 +18,6 @@ struct Vector4 {
 	float Dot (const Vector4 &rhs) const { return (x * rhs.x + y * rhs.y + z * rhs.z); }
 	Vector4 Normalize () const { float invlen = 1.0f / sqrtf (x * x + y * y + z * z); return { x * invlen, y * invlen, z * invlen }; };
 };
-static inline void Clamp (Vector4 &v, float lower, float upper) {
-	v.x = std::min (upper, std::max (lower, v.x));
-	v.y = std::min (upper, std::max (lower, v.y));
-	v.z = std::min (upper, std::max (lower, v.z));
-	v.w = std::min (upper, std::max (lower, v.w));
-}
 
 struct Matrix4 {
 	float m[4][4];
@@ -150,7 +144,7 @@ Matrix4 CreateViewMatrix (const Vector4 &look, const Vector4 &at, const Vector4 
 
 struct Vertex { Vector4 pos, uv, normal, viewPos, color; };
 struct Index { int pos[3], uv[3], normal[3]; };
-struct Texture { int width, height; std::vector<Vector4> data; };
+struct Texture { int width, height; float smax, tmax; std::vector<Vector4> data; };
 struct Light { Vector4 dir, ambientColor, diffuseColor, specularColor; };
 
 void SaveBmp (std::vector<Vector4> &frameBuffer, int width, int height, std::string file) {
@@ -172,7 +166,8 @@ bool LoadBmp (Texture &texture, std::string file) {
     if (!is) return false;
 	unsigned char buf[54];
 	is.read ((char *)buf, sizeof (buf));
-	texture.width = *(int *)&buf[18], texture.height = *(int *)&buf[22];
+	texture.width = *(int *)&buf[18], texture.height = abs (*(int *)&buf[22]);
+    texture.smax = texture.width - 1.5f, texture.tmax = texture.height - 1.5f;
 	int bytes = buf[28] / 8, count = texture.width * texture.height * bytes;
 	unsigned char *tmp = new unsigned char[count];
 	is.read ((char *)tmp, count);
@@ -241,7 +236,6 @@ struct Model {
 				if (index.normal[i] < 0) index.normal[i] += (int)normalBuffer.size ();
 			}
 		}
-		for (auto &uv : uvBuffer) Clamp (uv, 0.0f, 0.999999f);
 		for (auto &pos : posBuffer) {
 			upperBound.x = std::max (upperBound.x, pos.x);
 			upperBound.y = std::max (upperBound.y, pos.y);
@@ -299,9 +293,7 @@ struct Renderer {
 				specular = std::pow (specAngle, 16.0f);
 			}
 
-			Vector4 difC = { 0.87f, 0.87f, 0.87f, 0 };
-			if (!model.diffTex.data.empty ()) 
-				difC = model.diffTex.data[(int)std::floor (v.uv.x * model.diffTex.width) + (int)std::floor (v.uv.y * model.diffTex.height) * model.diffTex.width];
+            Vector4 difC = TextureLookup (model.diffTex, v.uv.x, v.uv.y);
 			Vector4 c = difC * 0.7f + (light.ambientColor + light.diffuseColor * lambertian + light.specularColor * specular) * 0.3f;
 			c.x = std::pow (c.x, 1.0f / 2.2f);
 			c.y = std::pow (c.y, 1.0f / 2.2f);
@@ -332,10 +324,41 @@ struct Renderer {
 		v.normal = ((v0.normal * (w0 / v0.pos.z) + v1.normal * (w1 / v1.pos.z) + v2.normal * (w2 / v2.pos.z))) * v.pos.z;
 		v.color = ((v0.color * (w0 / v0.pos.z) + v1.color * (w1 / v1.pos.z) + v2.color * (w2 / v2.pos.z))) * v.pos.z;
 		v.uv = ((v0.uv * (w0 / v0.pos.z) + v1.uv * (w1 / v1.pos.z) + v2.uv * (w2 / v2.pos.z))) * v.pos.z;
-		Clamp (v.uv, 0.0f, 0.999999f);
         return true;
     }
     static inline float EdgeFunc (const Vector4 &p0, const Vector4 &p1, const Vector4 &p2) { return ((p2.x - p0.x) * (p1.y - p0.y) - (p2.y - p0.y) * (p1.x - p0.x)); }
+    static inline Vector4 TextureLookup (const Texture &texture, float s, float t) {
+        Vector4 color = { 0.87f, 0.87f, 0.87f, 0 };
+        if (!texture.data.empty ()) {
+            Clamp (s, 0.0f, 1.0f); Clamp (t, 0.0f, 1.0f);
+            color = BilinearFiltering (texture, s * (texture.width - 1), t * (texture.height - 1));
+        }
+        return color;
+    }
+    static inline void Clamp (float &n, float lower, float upper) { n = std::min (upper, std::max (lower, n)); }
+    static inline Vector4 BilinearFiltering (const Texture &texture, float s, float t) {
+        if (s <= 0.5f || s >= texture.smax) return LinearFilteringV (texture, s, t);
+        if (t <= 0.5f || t >= texture.tmax) return LinearFilteringH (texture, s, t);
+        float supper = s + 0.5f, fs = std::floor(supper), ws = supper - fs,
+            tupper = t + 0.5f, ts = std::floor(tupper), wt = tupper - ts;
+        return (NearestNeighbor (texture, fs, ts) * ws * wt +
+                NearestNeighbor (texture, fs, ts - 1.0f) * ws * (1.0f - wt) +
+                NearestNeighbor (texture, fs - 1.0f, ts) * (1.0f - ws) * wt +
+                NearestNeighbor (texture, fs - 1.0f, ts - 1.0f) * (1.0f - ws) * (1.0f - wt));
+    }
+    static inline Vector4 LinearFilteringH (const Texture &texture, float s, float t) {
+        if (s <= 0.5f || s >= texture.smax) return NearestNeighbor (texture, s, t);
+        float supper = s + 0.5f, fs = std::floor(supper), ws = supper - fs;
+        return (NearestNeighbor (texture, fs, t) * ws + NearestNeighbor (texture, fs - 1.0f, t) * (1.0f - ws));
+    }
+    static inline Vector4 LinearFilteringV (const Texture &texture, float s, float t) {
+        if (t <= 0.5f || t >= texture.tmax) return NearestNeighbor (texture, s, t);
+        float tupper = t + 0.5f, ts = std::floor(tupper), wt = tupper - ts;
+        return (NearestNeighbor (texture, s, ts) * wt + NearestNeighbor (texture, s, ts - 1.0f) * (1.0f - wt));
+    }
+    static inline Vector4 NearestNeighbor (const Texture &texture, float s, float t) {
+        return texture.data[(int)std::round (s) + (int)std::round (t) * (texture.width - 1)];
+    }
 
 	void DrawTriangle (const Vertex &v0, const Vertex &v1, const Vertex &v2, const Vector4 &color) {
 		DrawLine (v0.pos, v1.pos, color); DrawLine (v1.pos, v2.pos, color); DrawLine (v0.pos, v2.pos, color);
@@ -378,13 +401,15 @@ int main () {
 	const int WIDTH = 1024, HEIGHT = 768;
 	Renderer renderer (WIDTH, HEIGHT, CreateProjectionMatrix ((float)M_PI_2, (float)WIDTH / (float)HEIGHT, 0.1f, 1000.0f));
 	renderer.SetLight ({ 0.0f, 1.0f, 1.0f }, { 0.1f, 0.1f, 0.1f, 0 }, { 0.5f, 0.5, 0, 0 }, { 1.0f, 1.0f, 1.0f, 0 });
-    renderer.SetCamera({ 10.0f, 10.0f, -12.0f }, { 10.0f, 0.0f, 10.0f });
+    renderer.SetCamera({ 10.7f, 1.0f, 11.0f }, { 10.0f, 0.0f, 10.0f });
     for (int i = 0; i < 5; i++) {
         for (int j = 0; j < 5; j++) {
-            Model model ("sphere", { i * 5.0f, 0.0f, j * 5.0f });
-            renderer.DrawModel (model, true, false);
+            Model model ("sphere", { j * 5.0f, i * 1.5f, i * 5.0f });
+            //renderer.DrawModel (model, true, false);
         }
     }
+    Model model ("cube", { 10.0f, 0.0f, 10.0f });
+    renderer.DrawModel (model, true, false);
 	SaveBmp (renderer.frameBuffer, WIDTH, HEIGHT, "screenshot.bmp");
 	return 0;
 }
