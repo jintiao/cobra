@@ -7,35 +7,41 @@
 #include <string>
 #include <vector>
 
-struct Color {
-    unsigned char b, g, r, a;
-    Color operator* (float f) const { return { (unsigned char)(b * f), (unsigned char)(g * f), (unsigned char)(r * f), (unsigned char)(a * f) }; }
-    Color operator* (const Color &rhs) const { return { (unsigned char)(b * rhs.b / 255), (unsigned char)(g * rhs.g / 255), (unsigned char)(r * rhs.r / 255), (unsigned char)(a * rhs.a / 255) }; }
-    Color operator+ (const Color &rhs) const { return { (unsigned char)(b + rhs.b), (unsigned char)(g + rhs.g), (unsigned char)(r + rhs.r), (unsigned char)(a + rhs.a) }; }
-};
-struct Texture { int width, height; std::vector<Color> data; };
 struct Index { int pos[3], uv[3], normal[3]; };
 struct Vector4 {
 	float x, y, z, w;
+	Vector4 operator+ (const Vector4 &rhs) const { return{ x + rhs.x, y + rhs.y, z + rhs.z, w + rhs.w }; }
 	Vector4 operator- (const Vector4 &rhs) const { return { x - rhs.x, y - rhs.y, z - rhs.z, w - rhs.w }; }
+	Vector4 operator* (const Vector4 &rhs) const { return{ x* rhs.x, y * rhs.y, z * rhs.z, w * rhs.w }; }
+	Vector4 operator* (float f) const { return{ x * f, y * f, z * f, w * f }; }
 	Vector4 Cross (const Vector4 &rhs) const { return { y * rhs.z - z * rhs.y, z * rhs.x - x * rhs.z, x * rhs.y - y * rhs.x }; }
 	float Dot (const Vector4 &rhs) const { return (x * rhs.x + y * rhs.y + z * rhs.z); }
 	Vector4 Normalize () const { float invlen = 1.0f / sqrtf (x * x + y * y + z * z); return { x * invlen, y * invlen, z * invlen }; };
 };
-struct Vertex { Vector4 pos, uv, normal; Color color; };
+struct Vertex { Vector4 pos, uv, normal, viewPos, color; };
+struct Texture { int width, height; std::vector<Vector4> data; };
 struct Matrix4 {
 	float m[4][4];
 	Matrix4 () { memset (m, 0, sizeof (m)); m[0][0] = m[1][1] = m[2][2] = m[3][3] = 1.0f; }
     Matrix4 operator* (const Matrix4 &rhs) const {
-        Matrix4 res;
+        Matrix4 t;
         for (int i = 0; i < 4; i++) {
             for (int j = 0; j < 4; j++) {
-                res.m[i][j] = m[i][0] * rhs.m[0][j] + m[i][1] * rhs.m[1][j] + m[i][2] * rhs.m[2][j] + m[i][3] * rhs.m[3][j];
+                t.m[i][j] = m[i][0] * rhs.m[0][j] + m[i][1] * rhs.m[1][j] + m[i][2] * rhs.m[2][j] + m[i][3] * rhs.m[3][j];
             }
         }
-        return res;
+        return t;
     }
 	void Translate (const Vector4 &v) { m[3][0] = v.x; m[3][1] = v.y; m[3][2] = v.z; }
+	Matrix4 Transpose () const {
+		Matrix4 t;
+		for (int i = 0; i < 4; i++) {
+			for (int j = 0; j < 4; j++) {
+				t.m[i][j] = m[j][i];
+			}
+		}
+		return t;
+	}
 	void Invert () {
 		Matrix4	temm = *this;
 		float tmp[12];
@@ -137,37 +143,48 @@ Matrix4 CreateViewMatrix (const Vector4 &look, const Vector4 &at, const Vector4 
 	return mat;
 }
 
-void SaveBmp (std::vector<Color> &frameBuffer, int width, int height, std::string file) {
-#define INT2CHAR_BIT(num, bit) (char)(((num) >> (bit)) & 0xff)
+void SaveBmp (std::vector<Vector4> &frameBuffer, int width, int height, std::string file) {
+#define INT2CHAR_BIT(num, bit) (unsigned char)(((num) >> (bit)) & 0xff)
 #define INT2CHAR(num) INT2CHAR_BIT((num),0), INT2CHAR_BIT((num),8), INT2CHAR_BIT((num),16), INT2CHAR_BIT((num),24)
-	const char header[54] = { 'B', 'M', INT2CHAR (54 + width*height * sizeof (Color)), INT2CHAR (0), INT2CHAR (54), INT2CHAR (40), INT2CHAR (width), INT2CHAR (height), 1, 0, 32, 0 };
+	unsigned char buf[54] = { 'B', 'M', INT2CHAR (54 + width*height * 32), INT2CHAR (0), INT2CHAR (54), INT2CHAR (40), INT2CHAR (width), INT2CHAR (height), 1, 0, 32, 0 };
 	std::ofstream ofs (file, std::ios_base::out | std::ios_base::binary);
-	ofs.write (header, sizeof (header));
-	ofs.write (static_cast<const char *> (static_cast<const void *> (frameBuffer.data ())), width * height * sizeof (Color));
+	ofs.write ((char *)buf, sizeof (buf));
+	for (auto &color : frameBuffer) {
+		buf[0] = (unsigned char)std::min (255, (int)(color.z * 255));
+		buf[1] = (unsigned char)std::min (255, (int)(color.y * 255));
+		buf[2] = (unsigned char)std::min (255, (int)(color.x * 255));
+		buf[3] = (unsigned char)std::min (255, (int)(color.w * 255));
+		ofs.write ((char *)buf, 4);
+	}
 }
 bool LoadBmp (Texture &texture, std::string file) {
 	std::ifstream is (file, std::ios_base::binary);
-    if (is.bad ()) return false;
+    if (!is) return false;
 	unsigned char buf[54];
 	is.read ((char *)buf, sizeof (buf));
 	texture.width = *(int *)&buf[18], texture.height = *(int *)&buf[22];
+	int bytes = buf[28] / 8, count = texture.width * texture.height * bytes;
+	unsigned char *tmp = new unsigned char[count];
+	is.read ((char *)tmp, count);
 	texture.data.resize (texture.width * texture.height);
-	if (buf[28] == 24) for (auto &color : texture.data) is.read ((char *)&color, 3);
-	else if (buf[28] == 32) is.read ((char *)&texture.data[0], sizeof (Color) * texture.width * texture.height);
+	count = 0;
+	for (auto &color : texture.data) {
+		color = { tmp[count + 2] / 255.0f, tmp[count + 1] / 255.0f, tmp[count + 0] / 255.0f, 0.0f };
+		count += bytes;
+	}
+	delete tmp;
     return true;
 }
 
 struct Model {
 	std::vector<Vector4> posBuffer, normalBuffer, uvBuffer;
 	std::vector<Index> indexBuffer;
-	Texture diffTex, specTex, normTex;
-	Matrix4 mat;
-	Model (std::string name, const Vector4 &translate) : posBuffer (1, { 0 }), normalBuffer (1, { 0 }), uvBuffer (1, { 0 }) {
-		mat.Translate (translate);
+	Texture diffTex;
+	Matrix4 worldMat;
+	Model (std::string name, const Vector4 &pos) : posBuffer (1, { 0 }), normalBuffer (1, { 0 }), uvBuffer (1, { 0 }) {
+		worldMat.Translate (pos);
 		LoadObj (name + ".obj");
-		LoadBmp (diffTex, name + ".bmp");
-        LoadBmp (specTex, name + "_spec.bmp");
-        LoadBmp (specTex, name + "_norm.bmp");
+		if (uvBuffer.size () > 1) LoadBmp (diffTex, name + ".bmp");
     }
 	void LoadObj (std::string str) {
 		float x, y, z;
@@ -216,24 +233,28 @@ struct Model {
 	}
 };
 
-struct Light { Vector4 dir; Color color; };
+struct Light { Vector4 pos, ambientColor, diffuseColor, specularColor; };
 
 struct Renderer {
 	int width, height;
-	std::vector<Color> frameBuffer;
+	std::vector<Vector4> frameBuffer;
 	std::vector<float> depthBuffer;
-	Matrix4 projMat;
+	Matrix4 projMat, mvMat, mvpMat, nmvMat;
     Light light;
 
 	Renderer (int w, int h, const Matrix4 &pm) : width (w), height (h), frameBuffer (w * h, { 0, 0, 0, 0 }), depthBuffer (w * h, std::numeric_limits<float>::max ()), projMat (pm) { }
+	void SetLight (const Vector4 &pos, const Vector4 &ambi, const Vector4 &diff, const Vector4 &spec) { light.pos = pos; light.ambientColor = ambi; light.diffuseColor = diff;
+	light.specularColor = spec;
+	}
 
 	void DrawModel (Matrix4 viewMat, Model &model, bool drawTex = true, bool drawWireFrame = false) {
-		Matrix4 mv = model.mat * viewMat, mvp = mv * projMat;
-		auto VertexShader = [&mv, &mvp, this] (const Vector4 &pos, const Vector4 &normal, const Vector4 &uv, Vertex &outVertex) {
-			outVertex.pos = TransformPoint (pos, mvp);
-            outVertex.normal = TransformDir(normal, mv);
+		mvMat = model.worldMat * viewMat, mvpMat = mvMat * projMat;
+		nmvMat = mvMat;  nmvMat.Invert (); nmvMat = nmvMat.Transpose ();
+		auto VertexShader = [this] (const Vector4 &pos, const Vector4 &normal, const Vector4 &uv, Vertex &outVertex) {
+			outVertex.pos = TransformPoint (pos, mvpMat);
+			outVertex.viewPos = TransformPoint (pos, mvMat);
+            outVertex.normal = TransformDir(normal, nmvMat);
 			outVertex.uv = uv;
-            outVertex.color = light.color * TransformDir(light.dir, mv).Dot(outVertex.normal);
 		};
 		for (auto &index : model.indexBuffer) {
 			Vertex ov[3];
@@ -244,14 +265,31 @@ struct Renderer {
 				ov[i].pos.z = ov[i].pos.w;
 			}
             if (drawTex) FillTriangle (model, ov[0], ov[1], ov[2]);
-			if (drawWireFrame) DrawTriangle (ov[0], ov[1], ov[2], { 0, 255, 0, 0 });
+			if (drawWireFrame) DrawTriangle (ov[0], ov[1], ov[2], { 0, 1.0f, 0, 0 });
 		}
 	}
 
 	void FillTriangle (Model &model, const Vertex &v0, const Vertex &v1, const Vertex &v2) {
-		auto PixelShader = [&model] (Vertex &v) -> Color {
-			auto diffColor = model.diffTex.data[(int)std::floor (v.uv.x * model.diffTex.width) + (int)std::floor (v.uv.y * model.diffTex.height) * model.diffTex.width];
-            return (diffColor + v.color);
+		auto PixelShader = [&model, this] (Vertex &v) -> Vector4 {
+			auto normal = v.normal.Normalize ();
+			auto ldir = (light.pos - v.viewPos).Normalize ();
+			auto lambertian = std::max (0.0f, ldir.Dot (normal));
+			auto specular = 0.0f;
+			if (lambertian > 0) {
+				auto viewDir = (v.viewPos * -1).Normalize ();
+				auto halfDir = (ldir + viewDir).Normalize ();
+				auto specAngle = std::max (0.0f, halfDir.Dot (normal));
+				specular = std::pow (specAngle, 16.0f);
+			}
+
+			Vector4 difC = { 0.87f, 0.87f, 0.87f, 0 };
+			if (!model.diffTex.data.empty ()) 
+				difC = model.diffTex.data[(int)std::floor (v.uv.x * model.diffTex.width) + (int)std::floor (v.uv.y * model.diffTex.height) * model.diffTex.width];
+			Vector4 c = difC * light.ambientColor + difC * lambertian + light.specularColor * specular;
+			c.x = std::pow (c.x, 1.0f / 2.2f);
+			c.y = std::pow (c.y, 1.0f / 2.2f);
+			c.z = std::pow (c.z, 1.0f / 2.2f);
+            return c;
 		};
 		float area = EdgeFunc (v0.pos, v1.pos, v2.pos);
         int x0 = std::max (0, (int)std::floor (std::min (v0.pos.x, std::min (v1.pos.x, v2.pos.x))));
@@ -274,20 +312,22 @@ struct Renderer {
         float w2 = EdgeFunc (v0.pos, v1.pos, v.pos) / area;
         if (w0 < 0 || w1 < 0 || w2 < 0) return false;
         v.pos.z = 1.0f / (w0 / v0.pos.z + w1 / v1.pos.z + w2 / v2.pos.z);
+		v.viewPos = ((v0.viewPos * (w0 / v0.pos.z) + v1.viewPos * (w1 / v1.pos.z) + v2.viewPos * (w2 / v2.pos.z))) * v.pos.z;
+		v.normal = ((v0.normal * (w0 / v0.pos.z) + v1.normal * (w1 / v1.pos.z) + v2.normal * (w2 / v2.pos.z))) * v.pos.z;
         v.uv.x = std::min (0.999999f, std::max (0.0f, (w0 * v0.uv.x / v0.pos.z + w1 * v1.uv.x / v1.pos.z + w2 * v2.uv.x / v2.pos.z) * v.pos.z));
         v.uv.y = std::min (0.999999f, std::max (0.0f, (w0 * v0.uv.y / v0.pos.z + w1 * v1.uv.y / v1.pos.z + w2 * v2.uv.y / v2.pos.z) * v.pos.z));
-        v.color.r = (w0 * v0.color.r / v0.pos.z + w1 * v1.color.r / v1.pos.z + w2 * v2.color.r / v2.pos.z) * v.pos.z;
-        v.color.g = (w0 * v0.color.g / v0.pos.z + w1 * v1.color.g / v1.pos.z + w2 * v2.color.g / v2.pos.z) * v.pos.z;
-        v.color.b = (w0 * v0.color.b / v0.pos.z + w1 * v1.color.b / v1.pos.z + w2 * v2.color.b / v2.pos.z) * v.pos.z;
-        v.color.a = (w0 * v0.color.a / v0.pos.z + w1 * v1.color.a / v1.pos.z + w2 * v2.color.a / v2.pos.z) * v.pos.z;
+        v.color.x = (unsigned char)((w0 * v0.color.x / v0.pos.z + w1 * v1.color.x / v1.pos.z + w2 * v2.color.x / v2.pos.z) * v.pos.z);
+        v.color.y = (unsigned char)((w0 * v0.color.y / v0.pos.z + w1 * v1.color.y / v1.pos.z + w2 * v2.color.y / v2.pos.z) * v.pos.z);
+        v.color.z = (unsigned char)((w0 * v0.color.z / v0.pos.z + w1 * v1.color.z / v1.pos.z + w2 * v2.color.z / v2.pos.z) * v.pos.z);
+        v.color.w = (unsigned char)((w0 * v0.color.w / v0.pos.z + w1 * v1.color.w / v1.pos.z + w2 * v2.color.w / v2.pos.z) * v.pos.z);
         return true;
     }
     static inline float EdgeFunc (const Vector4 &p0, const Vector4 &p1, const Vector4 &p2) { return ((p2.x - p0.x) * (p1.y - p0.y) - (p2.y - p0.y) * (p1.x - p0.x)); }
 
-	void DrawTriangle (const Vertex &v0, const Vertex &v1, const Vertex &v2, const Color &color) {
+	void DrawTriangle (const Vertex &v0, const Vertex &v1, const Vertex &v2, const Vector4 &color) {
 		DrawLine (v0, v1, color); DrawLine (v1, v2, color); DrawLine (v0, v2, color);
 	}
-	void DrawLine (const Vertex &v0, const Vertex &v1, const Color &color) {
+	void DrawLine (const Vertex &v0, const Vertex &v1, const Vector4 &color) {
 		int x0 = (int)round (v0.pos.x), y0 = (int)round (v0.pos.y), x1 = (int)round (v1.pos.x), y1 = (int)round (v1.pos.y), octant = CalcOctant (x0, y0, x1, y1);
 		SwitchToOctantZeroFrom (octant, x0, y0);
 		SwitchToOctantZeroFrom (octant, x1, y1);
@@ -405,10 +445,9 @@ struct Renderer {
 int main () {
 	const int WIDTH = 1024, HEIGHT = 768;
 	Renderer renderer (WIDTH, HEIGHT, CreateProjectionMatrix ((float)M_PI_2, (float)WIDTH / (float)HEIGHT, 0.1f, 1000.0f));
-    renderer.light = { { 0.0f, 1.0f, 0.0f }, { 0, 0, 255, 0 } };
-    renderer.light.dir = renderer.light.dir.Normalize ();
+    renderer.SetLight ({ -1.5f, 1.0f, 0.5f }, { 0.1f, 0.0f, 0.0f, 0 } , { 1.0f, 0, 0, 0 }, { 1.0f, 1.0f, 1.0f, 0 });
 	Model model ("cube", { 0.0f, 0.0f, 0.0f });
-	renderer.DrawModel (CreateViewMatrix ({ 1.0f, 1.3f, 2.0f }, { 0.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }), model, true, false);
+	renderer.DrawModel (CreateViewMatrix ({ 3.2f, 3.0f, 3.5f }, { 0.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }), model, true, false);
 	SaveBmp (renderer.frameBuffer, WIDTH, HEIGHT, "screenshot.bmp");
 	return 0;
 }
