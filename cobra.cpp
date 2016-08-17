@@ -341,10 +341,7 @@ struct Renderer {
 		DrawLine (v0.pos, v1.pos, color); DrawLine (v1.pos, v2.pos, color); DrawLine (v0.pos, v2.pos, color);
 	}
     void DrawLine (const Vector4 &p0, const Vector4 &p1, const Vector4 &color) {
-        int x0 = (int)std::floor(p0.x);
-        int x1 = (int)std::floor(p1.x);
-        int y0 = (int)std::floor(p0.y);
-        int y1 = (int)std::floor(p1.y);
+        int x0 = (int)std::floor(p0.x), x1 = (int)std::floor(p1.x), y0 = (int)std::floor(p0.y), y1 = (int)std::floor(p1.y);
         if (abs (x1 - x0) >= abs (y1 - y0)) {
             if (x0 > x1) { std::swap (x0, x1); std::swap (y0, y1); }
             DrawLineInternal (x0, y0, x1, y1, color, false);
@@ -355,6 +352,11 @@ struct Renderer {
         }
     }
     void DrawLineInternal (int x0, int y0, int x1, int y1, const Vector4 &color, bool steep) {
+        if (y0 == y1) {
+            for (int x = x0, y = y0; x <= x1; x++)
+                steep ? DrawPoint (y, x, color, 0) : DrawPoint (x, y, color, 0);
+            return;
+        }
         int dx = x1 - x0, dy = abs (y1 - y0), ystep = dy / (y1 - y0), delta = dy - dx, y = y0;
         for (int x = x0; x <= x1; x++, delta += dy) {
             steep ? DrawPoint (y, x, color, 0) : DrawPoint (x, y, color, 0);
@@ -375,19 +377,14 @@ struct Renderer {
 int main () {
 	const int WIDTH = 1024, HEIGHT = 768;
 	Renderer renderer (WIDTH, HEIGHT, CreateProjectionMatrix ((float)M_PI_2, (float)WIDTH / (float)HEIGHT, 0.1f, 1000.0f));
-	renderer.SetLight ({ 0.0f, 1.0f, -1.0f }, { 0.1f, 0.1f, 0.1f, 0 }, { 0.5f, 0.5, 0, 0 }, { 1.0f, 1.0f, 1.0f, 0 });
-    renderer.SetCamera({ 10.7f, 1.0f, 11.0f }, { 10.0f, 0.0f, 10.0f });
-	/*
+	renderer.SetLight ({ 0.0f, 1.0f, 1.0f }, { 0.1f, 0.1f, 0.1f, 0 }, { 0.5f, 0.5, 0, 0 }, { 1.0f, 1.0f, 1.0f, 0 });
+    renderer.SetCamera({ 10.0f, 10.0f, -12.0f }, { 10.0f, 0.0f, 10.0f });
     for (int i = 0; i < 5; i++) {
         for (int j = 0; j < 5; j++) {
             Model model ("sphere", { i * 5.0f, 0.0f, j * 5.0f });
             renderer.DrawModel (model, true, false);
         }
     }
-    */
-    Model model ("cube", { 10.0f, 0.0f, 10.0f });
-    renderer.DrawModel (model, true, false);
-
 	SaveBmp (renderer.frameBuffer, WIDTH, HEIGHT, "screenshot.bmp");
 	return 0;
 }
