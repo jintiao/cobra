@@ -2,14 +2,16 @@
 
 ##简介
 
-一个cpp文件，不到500行代码，完成一个光栅化渲染器的主要功能，将渲染结果导出到图片(参考screenshot1.bmp)。
-![screenshot.jpg](https://github.com/jintiao/cobra/raw/master/screenshot.jpg)
+一个cpp文件，不到500行代码，完成一个光栅化渲染器的主要功能，将渲染结果导出到图片。
 
 ##支持功能
 
 * 纹理模式渲染
 * 线框模式渲染
 * 方向光
+
+渲染效果如图
+![screenshot.jpg](https://github.com/jintiao/cobra/raw/master/screenshot.jpg)
 
 ##编译及运行
 
