@@ -17,7 +17,7 @@ struct Vector4 {
 	Vector4 Cross (const Vector4 &rhs) const { return { y * rhs.z - z * rhs.y, z * rhs.x - x * rhs.z, x * rhs.y - y * rhs.x }; }
 	float Dot (const Vector4 &rhs) const { return (x * rhs.x + y * rhs.y + z * rhs.z); }
 	Vector4 Normalize () const { float invlen = 1.0f / sqrtf (x * x + y * y + z * z); return { x * invlen, y * invlen, z * invlen }; };
-};
+}; // we use vecter4 representing position/direction/uv/color etc
 
 struct Matrix4 {
 	float m[4][4];
@@ -106,7 +106,8 @@ struct Matrix4 {
 		m[2][0] *= idet; m[2][1] *= idet; m[2][2] *= idet; m[2][3] *= idet;
 		m[3][0] *= idet; m[3][1] *= idet; m[3][2] *= idet; m[3][3] *= idet;
 	}
-};
+}; // row-major order
+
 Vector4 TransformPoint (const Vector4 &b, const Matrix4 &mat) {
 	Vector4 v;
 	v.w = b.x * mat.m[0][3] + b.y * mat.m[1][3] + b.z * mat.m[2][3] + mat.m[3][3];
@@ -145,6 +146,7 @@ Matrix4 CreateViewMatrix (const Vector4 &look, const Vector4 &at, const Vector4 
 struct Vertex { Vector4 pos, uv, normal, viewPos, color; };
 struct Index { int pos[3], uv[3], normal[3]; };
 struct Texture { int width, height; float smax, tmax; std::vector<Vector4> data; };
+struct Material { float ka, kd, ks; Texture texture; };
 struct Light { Vector4 dir, ambientColor, diffuseColor, specularColor; };
 
 void SaveBmp (std::vector<Vector4> &frameBuffer, int width, int height, std::string file) {
@@ -184,13 +186,13 @@ bool LoadBmp (Texture &texture, std::string file) {
 struct Model {
 	std::vector<Vector4> posBuffer, normalBuffer, uvBuffer;
 	std::vector<Index> indexBuffer;
-	Texture diffTex;
+	Material material;
 	Vector4 upperBound = { std::numeric_limits<float>::min (), std::numeric_limits<float>::min (), std::numeric_limits<float>::min (), 0};
 	Matrix4 worldMat;
-	Model (std::string name, const Vector4 &pos) : posBuffer (1, { 0 }), normalBuffer (1, { 0 }), uvBuffer (1, { 0 }) {
+	Model (std::string name, const Vector4 &pos, Material m) : material (m), posBuffer (1, { 0 }), normalBuffer (1, { 0 }), uvBuffer (1, { 0 }) {
 		worldMat.Translate (pos);
 		LoadObj (name + ".obj");
-		if (uvBuffer.size () > 1) LoadBmp (diffTex, name + ".bmp");
+		if (uvBuffer.size () > 1) LoadBmp (material.texture, name + ".bmp");
     }
 	void LoadObj (std::string str) {
 		float x, y, z;
@@ -251,8 +253,8 @@ struct Renderer {
 	Matrix4 projMat, viewMat, mvMat, mvpMat, nmvMat;
     Light light;
 
-	Renderer (int w, int h, const Matrix4 &pm) : width (w), height (h), frameBuffer (w * h, { 0, 0, 0, 0 }), depthBuffer (w * h, std::numeric_limits<float>::max ()), projMat (pm) { }
-	void SetLight (const Vector4 &dir, const Vector4 &ambi, const Vector4 &diff, const Vector4 &spec) { light.dir = dir; light.ambientColor = ambi; light.diffuseColor = diff;
+	Renderer (int w, int h, const Matrix4 &pm) : width (w), height (h), frameBuffer (w * h, { 0, 0, 0.34f, 0 }), depthBuffer (w * h, std::numeric_limits<float>::max ()), projMat (pm) { }
+	void SetLight (const Vector4 &dir, const Vector4 &ambi, const Vector4 &diff, const Vector4 &spec) { light.dir = dir.Normalize (); light.ambientColor = ambi; light.diffuseColor = diff;
 	light.specularColor = spec;
 	}
     void SetCamera (const Vector4 &look, const Vector4 &at) { viewMat = CreateViewMatrix (look, at, { 0.0f, 1.0f, 0.0f }); }
@@ -268,36 +270,30 @@ struct Renderer {
 		};
 		for (auto &index : model.indexBuffer) {
 			Vertex ov[3];
+			bool badTriangle = false;
 			for (int i = 0; i < 3; i++) {
 				VertexShader (model.posBuffer[index.pos[i]], model.normalBuffer[index.normal[i]], model.uvBuffer[index.uv[i]], ov[i]);
+				if (ov[i].pos.z < 0.0f || ov[i].pos.z > 1.0f) { badTriangle = true;	break; }
 				Proj2Screen (ov[i].pos);
 			}
-			if (BackFaceCulling (ov[0].viewPos, ov[1].viewPos, ov[2].viewPos)) continue;
+			if (badTriangle || BackFaceCulling (ov[0].viewPos, ov[1].viewPos, ov[2].viewPos)) continue;
             if (drawTex) FillTriangle (model, ov[0], ov[1], ov[2]);
 			if (drawWireFrame) DrawTriangle (ov[0], ov[1], ov[2], { 0, 1.0f, 0, 0 });
 		}
 	}
-	inline void Proj2Screen (Vector4 &pos) { pos.x = (pos.x + 1)* 0.5f * width; pos.y = (pos.y + 1)* 0.5f * height; pos.z = pos.w; }
+	inline void Proj2Screen (Vector4 &pos) { pos.x = (pos.x + 1)* 0.5f * width; pos.y = (pos.y + 1)* 0.5f * height; pos.z = pos.w; pos.w = 1.0f / pos.w; }
 	static inline bool BackFaceCulling (const Vector4 &p0, const Vector4 &p1, const Vector4 &p2) { return (p0.Dot ((p1 - p0).Cross (p2 - p0)) >= 0); }
 
 	void FillTriangle (Model &model, const Vertex &v0, const Vertex &v1, const Vertex &v2) {
 		auto PixelShader = [&model, this] (Vertex &v) -> Vector4 {
-			auto normal = v.normal.Normalize ();
-			auto ldir = light.dir.Normalize ();
-			auto lambertian = std::max (0.0f, ldir.Dot (normal));
+			auto lambertian = std::max (0.0f, light.dir.Dot (v.normal));
 			auto specular = 0.0f;
-			if (lambertian > 0) {
-				auto viewDir = (v.viewPos * -1).Normalize ();
-				auto halfDir = (ldir + viewDir).Normalize ();
-				auto specAngle = std::max (0.0f, std::min (1.0f, halfDir.Dot (normal)));
-				specular = std::pow (specAngle, 16.0f);
-			}
+			if (lambertian > 0) specular = std::pow (Clamp ((light.dir - v.viewPos).Normalize ().Dot (v.normal), 0.0f, 1.0f), 16.0f);
 
-            Vector4 difC = TextureLookup (model.diffTex, v.uv.x, v.uv.y);
-			Vector4 c = difC * 0.7f + (light.ambientColor + light.diffuseColor * lambertian + light.specularColor * specular) * 0.3f;
-			c.x = std::pow (c.x, 1.0f / 2.2f);
-			c.y = std::pow (c.y, 1.0f / 2.2f);
-			c.z = std::pow (c.z, 1.0f / 2.2f);
+			Vector4 c = TextureLookup (model.material.texture, v.uv.x, v.uv.y) * (light.ambientColor * model.material.ka + light.diffuseColor * lambertian * model.material.kd) + light.specularColor * specular * model.material.ks;
+			//c.x = std::pow (c.x, 1.0f / 2.2f);
+			//c.y = std::pow (c.y, 1.0f / 2.2f);
+			//c.z = std::pow (c.z, 1.0f / 2.2f);
             return c;
 		};
 		float area = EdgeFunc (v0.pos, v1.pos, v2.pos);
@@ -315,27 +311,27 @@ struct Renderer {
         }
 	}
     static bool Interpolate (const Vertex &v0, const Vertex &v1, const Vertex &v2, Vertex &v, float area) {
-        float w0 = EdgeFunc (v1.pos, v2.pos, v.pos) / area;
-        float w1 = EdgeFunc (v2.pos, v0.pos, v.pos) / area;
-        float w2 = EdgeFunc (v0.pos, v1.pos, v.pos) / area;
+        float w0 = EdgeFunc (v1.pos, v2.pos, v.pos) * v0.pos.w / area;
+        float w1 = EdgeFunc (v2.pos, v0.pos, v.pos) * v1.pos.w / area;
+        float w2 = EdgeFunc (v0.pos, v1.pos, v.pos) * v2.pos.w / area;
         if (w0 < 0 || w1 < 0 || w2 < 0) return false;
-        v.pos.z = 1.0f / (w0 / v0.pos.z + w1 / v1.pos.z + w2 / v2.pos.z);
-		v.viewPos = ((v0.viewPos * (w0 / v0.pos.z) + v1.viewPos * (w1 / v1.pos.z) + v2.viewPos * (w2 / v2.pos.z))) * v.pos.z;
-		v.normal = ((v0.normal * (w0 / v0.pos.z) + v1.normal * (w1 / v1.pos.z) + v2.normal * (w2 / v2.pos.z))) * v.pos.z;
-		v.color = ((v0.color * (w0 / v0.pos.z) + v1.color * (w1 / v1.pos.z) + v2.color * (w2 / v2.pos.z))) * v.pos.z;
-		v.uv = ((v0.uv * (w0 / v0.pos.z) + v1.uv * (w1 / v1.pos.z) + v2.uv * (w2 / v2.pos.z))) * v.pos.z;
+        v.pos.z = 1.0f / (w0 + w1 + w2);
+		v.viewPos = (v0.viewPos * w0 + v1.viewPos * w1 + v2.viewPos * w2) * v.pos.z;
+		v.normal = (v0.normal * w0 + v1.normal * w1 + v2.normal * w2) * v.pos.z;
+		v.color = (v0.color * w0 + v1.color * w1 + v2.color * w2) * v.pos.z;
+		v.uv = (v0.uv * w0 + v1.uv * w1 + v2.uv * w2) * v.pos.z;
         return true;
     }
     static inline float EdgeFunc (const Vector4 &p0, const Vector4 &p1, const Vector4 &p2) { return ((p2.x - p0.x) * (p1.y - p0.y) - (p2.y - p0.y) * (p1.x - p0.x)); }
     static inline Vector4 TextureLookup (const Texture &texture, float s, float t) {
         Vector4 color = { 0.87f, 0.87f, 0.87f, 0 };
         if (!texture.data.empty ()) {
-            Clamp (s, 0.0f, 1.0f); Clamp (t, 0.0f, 1.0f);
+            s = Clamp (s, 0.0f, 1.0f), t = Clamp (t, 0.0f, 1.0f);
             color = BilinearFiltering (texture, s * (texture.width - 1), t * (texture.height - 1));
         }
         return color;
     }
-    static inline void Clamp (float &n, float lower, float upper) { n = std::min (upper, std::max (lower, n)); }
+	static inline float Clamp (float n, float lower, float upper) { return std::min (upper, std::max (lower, n)); }
     static inline Vector4 BilinearFiltering (const Texture &texture, float s, float t) {
         if (s <= 0.5f || s >= texture.smax) return LinearFilteringV (texture, s, t);
         if (t <= 0.5f || t >= texture.tmax) return LinearFilteringH (texture, s, t);
@@ -357,7 +353,7 @@ struct Renderer {
         return (NearestNeighbor (texture, s, ts) * wt + NearestNeighbor (texture, s, ts - 1.0f) * (1.0f - wt));
     }
     static inline Vector4 NearestNeighbor (const Texture &texture, float s, float t) {
-        return texture.data[(int)std::round (s) + (int)std::round (t) * (texture.width - 1)];
+        return texture.data[(int)std::round (s) + (int)std::round (t) * texture.width];
     }
 
 	void DrawTriangle (const Vertex &v0, const Vertex &v1, const Vertex &v2, const Vector4 &color) {
@@ -400,16 +396,18 @@ struct Renderer {
 int main () {
 	const int WIDTH = 1024, HEIGHT = 768;
 	Renderer renderer (WIDTH, HEIGHT, CreateProjectionMatrix ((float)M_PI_2, (float)WIDTH / (float)HEIGHT, 0.1f, 1000.0f));
-	renderer.SetLight ({ 0.0f, 1.0f, 1.0f }, { 0.1f, 0.1f, 0.1f, 0 }, { 0.5f, 0.5, 0, 0 }, { 1.0f, 1.0f, 1.0f, 0 });
-    renderer.SetCamera({ 10.7f, 1.0f, 11.0f }, { 10.0f, 0.0f, 10.0f });
-    for (int i = 0; i < 5; i++) {
-        for (int j = 0; j < 5; j++) {
-            Model model ("sphere", { j * 5.0f, i * 1.5f, i * 5.0f });
-            //renderer.DrawModel (model, true, false);
-        }
-    }
-    Model model ("cube", { 10.0f, 0.0f, 10.0f });
-    renderer.DrawModel (model, true, false);
+	renderer.SetLight ({ 0.0f, 1.0f, 2.0f }, { 0.5f, 0.0f, 0.0f, 0 }, { 1.0f, 1.0, 1.0, 0 }, { 1.0f, 1.0f, 1.0f, 0 });
+    renderer.SetCamera({ 0.0f, 3.0f, 5.0f }, { 0.0f, 0.0f, 0.0f });
+
+	Model sphere ("sphere", { 2.5f, 0.5f, 1.5f }, { 0.1f, 1.0f, 1.2f });
+    renderer.DrawModel (sphere, true, false);
+	//Model bunny ("bunny", { 0.0f, 0.0f, 0.0f }, { 0.1f, 0.8f, 0.8f });
+	//renderer.DrawModel (bunny, true, false);
+	//Model cube ("cube", { -2.0f, 0.0f, 2.0f }, { 0.3f, 0.8f, 0.8f });
+	//renderer.DrawModel (cube, true, false);
+	//Model cubeFrame ("cube", { 4.0f, 1.8f, -2.2f }, { 0.5f, 0.8f, 0.8f });
+	//renderer.DrawModel (cubeFrame, false, true);
+
 	SaveBmp (renderer.frameBuffer, WIDTH, HEIGHT, "screenshot.bmp");
 	return 0;
 }
