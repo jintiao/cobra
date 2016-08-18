@@ -2,7 +2,6 @@
 #include <cmath>
 #include <fstream>
 #include <functional>
-#include <iterator>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -17,30 +16,17 @@ struct Vector4 {
 	Vector4 Cross (const Vector4 &rhs) const { return { y * rhs.z - z * rhs.y, z * rhs.x - x * rhs.z, x * rhs.y - y * rhs.x }; }
 	float Dot (const Vector4 &rhs) const { return (x * rhs.x + y * rhs.y + z * rhs.z); }
 	Vector4 Normalize () const { float invlen = 1.0f / sqrtf (x * x + y * y + z * z); return { x * invlen, y * invlen, z * invlen }; };
-}; // we use vecter4 representing position/direction/uv/color etc
+}; // we use vecter4 representing position/direction/uv/color etc.
 
 struct Matrix4 {
 	float m[4][4];
 	Matrix4 () { memset (m, 0, sizeof (m)); m[0][0] = m[1][1] = m[2][2] = m[3][3] = 1.0f; }
     Matrix4 operator* (const Matrix4 &rhs) const {
         Matrix4 t;
-        for (int i = 0; i < 4; i++) {
-            for (int j = 0; j < 4; j++) {
-                t.m[i][j] = m[i][0] * rhs.m[0][j] + m[i][1] * rhs.m[1][j] + m[i][2] * rhs.m[2][j] + m[i][3] * rhs.m[3][j];
-            }
-        }
+        for (int i = 0; i < 4; i++) { for (int j = 0; j < 4; j++) { t.m[i][j] = m[i][0] * rhs.m[0][j] + m[i][1] * rhs.m[1][j] + m[i][2] * rhs.m[2][j] + m[i][3] * rhs.m[3][j]; } }
         return t;
     }
-	void Translate (const Vector4 &v) { m[3][0] = v.x; m[3][1] = v.y; m[3][2] = v.z; }
-	Matrix4 Transpose () const {
-		Matrix4 t;
-		for (int i = 0; i < 4; i++) {
-			for (int j = 0; j < 4; j++) {
-				t.m[i][j] = m[j][i];
-			}
-		}
-		return t;
-	}
+
 	void Invert () {
 		Matrix4	temm = *this;
 		float tmp[12];
@@ -105,8 +91,15 @@ struct Matrix4 {
 		m[1][0] *= idet; m[1][1] *= idet; m[1][2] *= idet; m[1][3] *= idet;
 		m[2][0] *= idet; m[2][1] *= idet; m[2][2] *= idet; m[2][3] *= idet;
 		m[3][0] *= idet; m[3][1] *= idet; m[3][2] *= idet; m[3][3] *= idet;
-	}
-}; // row-major order
+	} // copy from somewhere, no idea what it is.
+
+	Matrix4 InvertTranspose () const {
+		Matrix4 t, o = *this;
+		o.Invert ();
+		for (int i = 0; i < 4; i++) { for (int j = 0; j < 4; j++) {	t.m[i][j] = o.m[j][i]; } }
+		return t;
+	} // (M-1)T
+}; // our matrix is in row-major order.
 
 Vector4 TransformPoint (const Vector4 &b, const Matrix4 &mat) {
 	Vector4 v;
@@ -115,23 +108,26 @@ Vector4 TransformPoint (const Vector4 &b, const Matrix4 &mat) {
 	v.y = (b.x * mat.m[0][1] + b.y * mat.m[1][1] + b.z * mat.m[2][1] + mat.m[3][1]) / v.w;
 	v.z = (b.x * mat.m[0][2] + b.y * mat.m[1][2] + b.z * mat.m[2][2] + mat.m[3][2]) / v.w;
 	return v;
-}
+} // using matrix to transform a point.
+
 Vector4 TransformDir (const Vector4 &b, const Matrix4 &mat) {
 	Vector4 v = { 0 };
 	v.x = b.x * mat.m[0][0] * + b.y * mat.m[1][0] + b.z * mat.m[2][0];
 	v.y = b.x * mat.m[0][1] * b.x + b.y * mat.m[1][1] + b.z * mat.m[2][1];
 	v.z = b.x * mat.m[0][2] * b.x + b.y * mat.m[1][2] + b.z * mat.m[2][2];
 	return v;
-}
-Matrix4 CreateProjectionMatrix (float fov, float ratio, float n, float f) {
-	float r = n * tan (fov * 0.5f), l = -r, b = -r / ratio, t = r / ratio;
+} // using matrix to transform a direction.
+
+Matrix4 CreateProjectionMatrix (float hfov, float ratio, float n, float f) {
+	float r = n * tan (hfov * 0.5f), l = -r, b = -r / ratio, t = r / ratio;
 	Matrix4 mat;
 	mat.m[0][0] = 2 * n / (r - l); mat.m[0][1] = 0.0f; mat.m[0][2] = 0.0f; mat.m[0][3] = 0.0f;
 	mat.m[1][0] = 0.0f; mat.m[1][1] = 2 * n / (t - b); mat.m[1][2] = 0.0f; mat.m[1][3] = 0.0f;
 	mat.m[2][0] = (r + l) / (r - l); mat.m[2][1] = (t + b) / (t - b); mat.m[2][2] = -(f + n) / (f - n); mat.m[2][3] = -1.0f;
 	mat.m[3][0] = 0.0f; mat.m[3][1] = 0.0f; mat.m[3][2] = (-2.0f * f * n) / (f - n); mat.m[3][3] = 0.0f;
 	return mat;
-}
+} // same as opengl's projection matrix, but remember we are using row-major order, so it looks a little different.
+
 Matrix4 CreateViewMatrix (const Vector4 &look, const Vector4 &at, const Vector4 &up) {
 	Vector4 zaxis = (look - at).Normalize (), xzaxis = up.Cross (zaxis).Normalize (), yzaxis = zaxis.Cross (xzaxis);
 	Matrix4 mat;
@@ -141,7 +137,13 @@ Matrix4 CreateViewMatrix (const Vector4 &look, const Vector4 &at, const Vector4 
 	mat.m[3][0] = look.x; mat.m[3][1] = look.y; mat.m[3][2] = look.z; mat.m[3][3] = 1.0f;
 	mat.Invert ();
 	return mat;
-}
+} // view matrix, camera matrix, whatever you call it.
+
+Matrix4 CreateModelMatrix (const Vector4 &translate) {
+	Matrix4 mat;
+	mat.m[3][0] = translate.x; mat.m[3][1] = translate.y; mat.m[3][2] = translate.z;
+	return mat;
+} // model(world) matrix, now we only support translate. rotate/scale is NOT supported.
 
 struct Vertex { Vector4 pos, uv, normal, viewPos, color; };
 struct Index { int pos[3], uv[3], normal[3]; };
@@ -162,7 +164,8 @@ void SaveBmp (std::vector<Vector4> &frameBuffer, int width, int height, std::str
 		buf[3] = (unsigned char)std::min (255, (int)(color.w * 255));
 		ofs.write ((char *)buf, 4);
 	}
-}
+} // bmp's color is bgra order
+
 bool LoadBmp (Texture &texture, std::string file) {
 	std::ifstream is (file, std::ios_base::binary);
     if (!is) return false;
@@ -181,19 +184,20 @@ bool LoadBmp (Texture &texture, std::string file) {
 	}
 	delete []tmp;
     return true;
-}
+} // load bmp into texture
 
 struct Model {
 	std::vector<Vector4> posBuffer, normalBuffer, uvBuffer;
 	std::vector<Index> indexBuffer;
 	Material material;
-	Vector4 upperBound = { std::numeric_limits<float>::min (), std::numeric_limits<float>::min (), std::numeric_limits<float>::min (), 0};
 	Matrix4 worldMat;
+
 	Model (std::string name, const Vector4 &pos, Material m) : material (m), posBuffer (1, { 0 }), normalBuffer (1, { 0 }), uvBuffer (1, { 0 }) {
-		worldMat.Translate (pos);
+		worldMat = CreateModelMatrix (pos);
 		LoadObj (name + ".obj");
 		if (uvBuffer.size () > 1) LoadBmp (material.texture, name + ".bmp");
     }
+
 	void LoadObj (std::string str) {
 		float x, y, z;
 		char dummy;
@@ -202,29 +206,29 @@ struct Model {
 			if (str.length () < 2) continue;
 			std::istringstream iss (str);
 			std::string token;
-			if (str[1] == 't' && str[0] == 'v') {
+			if (str[1] == 't' && str[0] == 'v') { // load uv. "vt -0.05 0.0972793"
 				iss >> token >> x >> y;
 				uvBuffer.push_back ({ x, y });
-			} else if (str[1] == 'n' && str[0] == 'v') {
+			} else if (str[1] == 'n' && str[0] == 'v') { // load normal. "vn -0.981591 -0.162468 0.100411"
 				iss >> token >> x >> y >> z;
 				normalBuffer.push_back ({ x, y, z });
-			} else if (str[0] == 'v') {
+			} else if (str[0] == 'v') { // load postion. "v -0.983024 -0.156077 0.0964607"
 				iss >> token >> x >> y >> z;
 				posBuffer.push_back ({ x, y, z });
-			} else if (str[0] == 'f') {
+			} else if (str[0] == 'f') { // load index. keep in mind that uv/normal index are optional.
 				Index index = { { 0 } };
-				if (str.find ("//") != std::string::npos) {
+				if (str.find ("//") != std::string::npos) { // pos//normal, no uv. "f 181//176 182//182 209//208"
 					iss >> token >> index.pos[0] >> dummy >> dummy >> index.normal[0] >>
 						index.pos[1] >> dummy >> dummy >> index.normal[1] >>
 						index.pos[2] >> dummy >> dummy >> index.normal[2];
 				} else {
 					size_t count = 0, pos = str.find ('/');
 					while (pos != std::string::npos) { count++; pos = str.find ('/', pos + 1); }
-					if (count == 6) {
+					if (count == 6) { // "f 181/292/176 182/250/182 209/210/208"
 						iss >> token >> index.pos[0] >> dummy >> index.uv[0] >> dummy >> index.normal[0] >>
 							index.pos[1] >> dummy >> index.uv[1] >> dummy >> index.normal[1] >>
 							index.pos[2] >> dummy >> index.uv[2] >> dummy >> index.normal[2];
-					} else if (count == 3) {
+					} else if (count == 3) { // pos/uv, no normal. "f 181/176 182/182 209/208"
 						iss >> token >> index.pos[0] >> dummy >> index.uv[0] >> index.pos[1] >> dummy >> index.uv[1] >> index.pos[2] >> dummy >> index.uv[2];
 					}
 				}
@@ -237,13 +241,8 @@ struct Model {
 				if (index.uv[i] < 0) index.uv[i] += (int)uvBuffer.size ();
 				if (index.normal[i] < 0) index.normal[i] += (int)normalBuffer.size ();
 			}
-		}
-		for (auto &pos : posBuffer) {
-			upperBound.x = std::max (upperBound.x, pos.x);
-			upperBound.y = std::max (upperBound.y, pos.y);
-			upperBound.z = std::max (upperBound.z, pos.z);
-		}
-	}
+		} // deal with negative index
+	} // obj is a text base model format
 };
 
 struct Renderer {
@@ -254,111 +253,131 @@ struct Renderer {
     Light light;
 
 	Renderer (int w, int h, const Matrix4 &pm) : width (w), height (h), frameBuffer (w * h, { 0, 0, 0.34f, 0 }), depthBuffer (w * h, std::numeric_limits<float>::max ()), projMat (pm) { }
-	void SetLight (const Vector4 &dir, const Vector4 &ambi, const Vector4 &diff, const Vector4 &spec) { light.dir = dir.Normalize (); light.ambientColor = ambi; light.diffuseColor = diff;
-	light.specularColor = spec;
-	}
+
+	void SetLight (const Vector4 &dir, const Vector4 &ambi, const Vector4 &diff, const Vector4 &spec) { 
+		light.dir = dir.Normalize (); light.ambientColor = ambi; light.diffuseColor = diff;	light.specularColor = spec;
+	} // we support one direction light right now.
+
     void SetCamera (const Vector4 &look, const Vector4 &at) { viewMat = CreateViewMatrix (look, at, { 0.0f, 1.0f, 0.0f }); }
 
 	void DrawModel (Model &model, bool drawTex = true, bool drawWireFrame = false) {
-		mvMat = model.worldMat * viewMat, mvpMat = mvMat * projMat;
-		nmvMat = mvMat;  nmvMat.Invert (); nmvMat = nmvMat.Transpose ();
+		// again, using row-major order matrix, the calculation order is "pos * modelMat * viewMat * projMat".
+		// if you are using column-major order matrix, it will be "projMat * viewMat * modelMat * pos".
+		mvMat = model.worldMat * viewMat, mvpMat = mvMat * projMat, nmvMat = mvMat.InvertTranspose ();
+
 		auto VertexShader = [this] (const Vector4 &pos, const Vector4 &normal, const Vector4 &uv, Vertex &outVertex) {
 			outVertex.pos = TransformPoint (pos, mvpMat);
 			outVertex.viewPos = TransformPoint (pos, mvMat);
             outVertex.normal = TransformDir(normal, nmvMat);
 			outVertex.uv = uv;
-		};
+		}; // note that transform point/dir/normal require different matrix.
+
 		for (auto &index : model.indexBuffer) {
-			Vertex ov[3];
+			Vertex outVertex[3];
 			bool badTriangle = false;
 			for (int i = 0; i < 3; i++) {
-				VertexShader (model.posBuffer[index.pos[i]], model.normalBuffer[index.normal[i]], model.uvBuffer[index.uv[i]], ov[i]);
-				if (ov[i].pos.z < 0.0f || ov[i].pos.z > 1.0f) { badTriangle = true;	break; }
-				Proj2Screen (ov[i].pos);
+				VertexShader (model.posBuffer[index.pos[i]], model.normalBuffer[index.normal[i]], model.uvBuffer[index.uv[i]], outVertex[i]);
+
+				if (outVertex[i].pos.z < 0.0f || outVertex[i].pos.z > 1.0f) { 
+					badTriangle = true;	break; 
+				} // this vertex is outside the view frustum, this triangle will be ignored.
+
+				Ndc2Screen (outVertex[i].pos); 
 			}
-			if (badTriangle || BackFaceCulling (ov[0].viewPos, ov[1].viewPos, ov[2].viewPos)) continue;
-            if (drawTex) FillTriangle (model, ov[0], ov[1], ov[2]);
-			if (drawWireFrame) DrawTriangle (ov[0], ov[1], ov[2], { 0, 1.0f, 0, 0 });
-		}
+
+			if (badTriangle || BackFaceCulling (outVertex[0].viewPos, outVertex[1].viewPos, outVertex[2].viewPos)) continue;
+
+            if (drawTex) FillTriangle (model, outVertex[0], outVertex[1], outVertex[2]); 
+			if (drawWireFrame) DrawTriangle (outVertex[0], outVertex[1], outVertex[2], { 0, 1.0f, 0, 0 }); // wireframe mode
+		} // travers all triangle
 	}
-	inline void Proj2Screen (Vector4 &pos) { pos.x = (pos.x + 1)* 0.5f * width; pos.y = (pos.y + 1)* 0.5f * height; pos.z = pos.w; pos.w = 1.0f / pos.w; }
+
+	inline void Ndc2Screen (Vector4 &pos) { pos.x = (pos.x + 1)* 0.5f * width; pos.y = (pos.y + 1)* 0.5f * height; pos.z = pos.w; pos.w = 1.0f / pos.w; 
+	} // convert from normalized device coordinate to screen coordinate
+
 	static inline bool BackFaceCulling (const Vector4 &p0, const Vector4 &p1, const Vector4 &p2) { return (p0.Dot ((p1 - p0).Cross (p2 - p0)) >= 0); }
 
 	void FillTriangle (Model &model, const Vertex &v0, const Vertex &v1, const Vertex &v2) {
 		auto PixelShader = [&model, this] (Vertex &v) -> Vector4 {
 			auto lambertian = std::max (0.0f, light.dir.Dot (v.normal));
 			auto specular = 0.0f;
-			if (lambertian > 0) specular = std::pow (Clamp ((light.dir - v.viewPos).Normalize ().Dot (v.normal), 0.0f, 1.0f), 16.0f);
+			if (lambertian > 0) specular = std::pow (Saturate ((light.dir - v.viewPos).Normalize ().Dot (v.normal)), 16.0f);
+			return (TextureLookup (model.material.texture, v.uv.x, v.uv.y) * (light.ambientColor * model.material.ka + light.diffuseColor * lambertian * model.material.kd) + light.specularColor * specular * model.material.ks);
+		}; // blinn-phong shading.
 
-			Vector4 c = TextureLookup (model.material.texture, v.uv.x, v.uv.y) * (light.ambientColor * model.material.ka + light.diffuseColor * lambertian * model.material.kd) + light.specularColor * specular * model.material.ks;
-			//c.x = std::pow (c.x, 1.0f / 2.2f);
-			//c.y = std::pow (c.y, 1.0f / 2.2f);
-			//c.z = std::pow (c.z, 1.0f / 2.2f);
-            return c;
-		};
 		float area = EdgeFunc (v0.pos, v1.pos, v2.pos);
         int x0 = std::max (0, (int)std::floor (std::min (v0.pos.x, std::min (v1.pos.x, v2.pos.x))));
         int y0 = std::max (0, (int)std::floor (std::min (v0.pos.y, std::min (v1.pos.y, v2.pos.y))));
         int x1 = std::min (width - 1, (int)std::floor (std::max (v0.pos.x, std::max (v1.pos.x, v2.pos.x))));
         int y1 = std::min (height - 1, (int)std::floor (std::max (v0.pos.y, std::max (v1.pos.y, v2.pos.y))));
-        for (int y = y0; y <= y1; y++) {
-            for (int x = x0; x <= x1; x++) {
+        for (int y = y0; y <= y1; y++) { //       only check for points that are inside the screen
+            for (int x = x0; x <= x1; x++) { //   and inside the triangle bounding box
                 Vertex v = { { x + 0.5f, y + 0.5f, 0 } };
-                if (!Interpolate (v0, v1, v2, v, area)) continue;
-                if (v.pos.z >= depthBuffer[x + y * width]) continue;
+                if (!Interpolate (v0, v1, v2, v, area)) continue; // v is outside the triangle
+                if (v.pos.z >= depthBuffer[x + y * width]) continue; // z test
                 DrawPoint (x, y, PixelShader (v), v.pos.z);
             }
-        }
-	}
+        } // use edge function to draw triangle.
+	} // fill triangle with color
+
     static bool Interpolate (const Vertex &v0, const Vertex &v1, const Vertex &v2, Vertex &v, float area) {
         float w0 = EdgeFunc (v1.pos, v2.pos, v.pos) * v0.pos.w / area;
         float w1 = EdgeFunc (v2.pos, v0.pos, v.pos) * v1.pos.w / area;
         float w2 = EdgeFunc (v0.pos, v1.pos, v.pos) * v2.pos.w / area;
-        if (w0 < 0 || w1 < 0 || w2 < 0) return false;
-        v.pos.z = 1.0f / (w0 + w1 + w2);
+        if (w0 < 0 || w1 < 0 || w2 < 0) return false; 
+        v.pos.z = 1.0f / (w0 + w1 + w2); // perspective corrected interpolate.
 		v.viewPos = (v0.viewPos * w0 + v1.viewPos * w1 + v2.viewPos * w2) * v.pos.z;
 		v.normal = (v0.normal * w0 + v1.normal * w1 + v2.normal * w2) * v.pos.z;
 		v.color = (v0.color * w0 + v1.color * w1 + v2.color * w2) * v.pos.z;
 		v.uv = (v0.uv * w0 + v1.uv * w1 + v2.uv * w2) * v.pos.z;
-        return true;
-    }
-    static inline float EdgeFunc (const Vector4 &p0, const Vector4 &p1, const Vector4 &p2) { return ((p2.x - p0.x) * (p1.y - p0.y) - (p2.y - p0.y) * (p1.x - p0.x)); }
+        return true; 
+    } // yes we interpolate all variables, no matter they are going to be used or not.
+
+    static inline float EdgeFunc (const Vector4 &p0, const Vector4 &p1, const Vector4 &p2) { return ((p2.x - p0.x) * (p1.y - p0.y) - (p2.y - p0.y) * (p1.x - p0.x));
+	} // the result of edge function could be represent as area as well.
+
     static inline Vector4 TextureLookup (const Texture &texture, float s, float t) {
-        Vector4 color = { 0.87f, 0.87f, 0.87f, 0 };
+        Vector4 color = { 0.87f, 0.87f, 0.87f, 0 }; // default color
         if (!texture.data.empty ()) {
-            s = Clamp (s, 0.0f, 1.0f), t = Clamp (t, 0.0f, 1.0f);
+            s = Saturate (s), t = Saturate (t); // texture wrap
             color = BilinearFiltering (texture, s * (texture.width - 1), t * (texture.height - 1));
         }
         return color;
     }
-	static inline float Clamp (float n, float lower, float upper) { return std::min (upper, std::max (lower, n)); }
+
+	static inline float Saturate (float n) { return std::min (1.0f, std::max (0.0f, n)); 
+	} // clamp n to range [0.0, 1.0]
+
     static inline Vector4 BilinearFiltering (const Texture &texture, float s, float t) {
         if (s <= 0.5f || s >= texture.smax) return LinearFilteringV (texture, s, t);
         if (t <= 0.5f || t >= texture.tmax) return LinearFilteringH (texture, s, t);
-        float supper = s + 0.5f, fs = std::floor(supper), ws = supper - fs,
-            tupper = t + 0.5f, ts = std::floor(tupper), wt = tupper - ts;
+        float supper = s + 0.5f, fs = std::floor(supper), ws = supper - fs, tupper = t + 0.5f, ts = std::floor(tupper), wt = tupper - ts;
         return (NearestNeighbor (texture, fs, ts) * ws * wt +
                 NearestNeighbor (texture, fs, ts - 1.0f) * ws * (1.0f - wt) +
                 NearestNeighbor (texture, fs - 1.0f, ts) * (1.0f - ws) * wt +
                 NearestNeighbor (texture, fs - 1.0f, ts - 1.0f) * (1.0f - ws) * (1.0f - wt));
-    }
+    } // Texture filtering : Bilinear filtering
+
     static inline Vector4 LinearFilteringH (const Texture &texture, float s, float t) {
         if (s <= 0.5f || s >= texture.smax) return NearestNeighbor (texture, s, t);
         float supper = s + 0.5f, fs = std::floor(supper), ws = supper - fs;
         return (NearestNeighbor (texture, fs, t) * ws + NearestNeighbor (texture, fs - 1.0f, t) * (1.0f - ws));
-    }
+    } // Texture filtering : horizontal linear filtering 
+
     static inline Vector4 LinearFilteringV (const Texture &texture, float s, float t) {
         if (t <= 0.5f || t >= texture.tmax) return NearestNeighbor (texture, s, t);
         float tupper = t + 0.5f, ts = std::floor(tupper), wt = tupper - ts;
         return (NearestNeighbor (texture, s, ts) * wt + NearestNeighbor (texture, s, ts - 1.0f) * (1.0f - wt));
-    }
+    } // texture filtering : vertical linear filtering 
+
     static inline Vector4 NearestNeighbor (const Texture &texture, float s, float t) {
         return texture.data[(int)std::round (s) + (int)std::round (t) * texture.width];
-    }
+    } // texture filtering : nearest-neighbor interpolation
 
 	void DrawTriangle (const Vertex &v0, const Vertex &v1, const Vertex &v2, const Vector4 &color) {
 		DrawLine (v0.pos, v1.pos, color); DrawLine (v1.pos, v2.pos, color); DrawLine (v0.pos, v2.pos, color);
-	}
+	} // draw the edges of a triangle
+
     void DrawLine (const Vector4 &p0, const Vector4 &p1, const Vector4 &color) {
         int x0 = (int)std::floor(p0.x), x1 = (int)std::floor(p1.x), y0 = (int)std::floor(p0.y), y1 = (int)std::floor(p1.y);
         if (abs (x1 - x0) >= abs (y1 - y0)) {
@@ -369,7 +388,7 @@ struct Renderer {
             if (y0 > y1) { std::swap (x0, x1); std::swap (y0, y1); }
             DrawLineInternal (y0, x0, y1, x1, color, true);
         }
-    }
+    } // bresenham line algorithm
     void DrawLineInternal (int x0, int y0, int x1, int y1, const Vector4 &color, bool steep) {
         if (y0 == y1) {
             for (int x = x0, y = y0; x <= x1; x++)
@@ -384,30 +403,34 @@ struct Renderer {
                 delta -= dx;
             }
         }
-    }
+    } // still bresenham line algorithm
+
     void DrawPoint (int x, int y, const Vector4 &color, float z) {
         if (x >= 0 && x < width && y >= 0 && y < height) {
-            frameBuffer[x + y * width] = color;
-            depthBuffer[x + y * width] = z;
+            frameBuffer[x + y * width] = color; // write frame buffer
+            depthBuffer[x + y * width] = z; // write z buffer
         }
-    }
+    } // need to check the range everytime, a little bit waste ha?
 };
 
 int main () {
+	// renderer setup
 	const int WIDTH = 1024, HEIGHT = 768;
 	Renderer renderer (WIDTH, HEIGHT, CreateProjectionMatrix ((float)M_PI_2, (float)WIDTH / (float)HEIGHT, 0.1f, 1000.0f));
 	renderer.SetLight ({ 0.0f, 1.0f, 2.0f }, { 0.5f, 0.0f, 0.0f, 0 }, { 1.0f, 1.0, 1.0, 0 }, { 1.0f, 1.0f, 1.0f, 0 });
     renderer.SetCamera({ 0.0f, 3.0f, 5.0f }, { 0.0f, 0.0f, 0.0f });
 
-	Model sphere ("sphere", { 2.5f, 0.5f, 1.5f }, { 0.1f, 1.0f, 1.2f });
+	// Model (filepath, position, material)
+	Model sphere ("res/sphere", { 2.5f, 0.5f, 1.5f }, { 0.1f, 1.0f, 1.2f });
     renderer.DrawModel (sphere, true, false);
-	//Model bunny ("bunny", { 0.0f, 0.0f, 0.0f }, { 0.1f, 0.8f, 0.8f });
-	//renderer.DrawModel (bunny, true, false);
-	//Model cube ("cube", { -2.0f, 0.0f, 2.0f }, { 0.3f, 0.8f, 0.8f });
-	//renderer.DrawModel (cube, true, false);
-	//Model cubeFrame ("cube", { 4.0f, 1.8f, -2.2f }, { 0.5f, 0.8f, 0.8f });
-	//renderer.DrawModel (cubeFrame, false, true);
+	Model bunny ("res/bunny", { 0.0f, 0.0f, 0.0f }, { 0.1f, 0.8f, 0.6f });
+	renderer.DrawModel (bunny, true, false);
+	Model cube ("res/cube", { -2.0f, 0.0f, 2.0f }, { 0.3f, 0.8f, 0.8f });
+	renderer.DrawModel (cube, true, false);
+	Model cubeFrame ("res/cube", { 4.0f, 1.8f, -2.2f }, { 0.5f, 0.8f, 0.8f });
+	renderer.DrawModel (cubeFrame, false, true);
 
+	// save the frame buffer to a bmp file
 	SaveBmp (renderer.frameBuffer, WIDTH, HEIGHT, "screenshot.bmp");
 	return 0;
 }
