@@ -14,14 +14,15 @@
 ![screenshot.jpg](https://github.com/jintiao/cobra/raw/master/screenshot.jpg)
 
 ##编译及运行
+请使用支持c++11标准的编译器进行编译。
 
-###windows 
+###windows
 
 用visual studio 2015打开vs\cobra.sln，编译然后运行根目录下的cobra.exe。
 
 如果要在vs里调试运行，请在项目properties设置将 Debuggin->Working Directory 设为"$(ProjectDir)..\"。
 
-###osx/linux
+###osx
 
 在根目录下运行 make 然后运行 ./cobra 。
 

@@ -187,9 +187,9 @@ bool LoadBmp (Texture &texture, std::string file) {
 } // load bmp into texture
 
 struct Model {
+	Material material;
 	std::vector<Vector4> posBuffer, normalBuffer, uvBuffer;
 	std::vector<Index> indexBuffer;
-	Material material;
 	Matrix4 worldMat;
 
 	Model (std::string name, const Vector4 &pos, Material m) : material (m), posBuffer (1, { 0 }), normalBuffer (1, { 0 }), uvBuffer (1, { 0 }) {
@@ -282,8 +282,8 @@ struct Renderer {
 				// run vertex shader for every vertex
 				VertexShader (model.posBuffer[index.pos[i]], model.normalBuffer[index.normal[i]], model.uvBuffer[index.uv[i]], outVertex[i]);
 
-				if (outVertex[i].pos.z < 0.0f || outVertex[i].pos.z > 1.0f) { 
-					badTriangle = true;	break; 
+				if (outVertex[i].pos.z < 0.0f || outVertex[i].pos.z > 1.0f) {
+					badTriangle = true;	break;
 				} // check the vertex inside or outside the view frustum
 
 				Ndc2Screen (outVertex[i].pos); // convert to screen coordinate
@@ -293,14 +293,14 @@ struct Renderer {
 			if (badTriangle || BackFaceCulling (outVertex[0].viewPos, outVertex[1].viewPos, outVertex[2].viewPos)) continue;
 
 			// texture mode drawing
-            if (drawTex) FillTriangle (model, outVertex[0], outVertex[1], outVertex[2]); 
+            if (drawTex) FillTriangle (model, outVertex[0], outVertex[1], outVertex[2]);
 
 			// wireframe mode drawing
-			if (drawWireFrame) DrawTriangle (outVertex[0], outVertex[1], outVertex[2], { 0, 1.0f, 0, 0 }); 
+			if (drawWireFrame) DrawTriangle (outVertex[0], outVertex[1], outVertex[2], { 0, 1.0f, 0, 0 });
 		} // travers all triangles
 	}
 
-	inline void Ndc2Screen (Vector4 &pos) { pos.x = (pos.x + 1)* 0.5f * width; pos.y = (pos.y + 1)* 0.5f * height; pos.z = pos.w; pos.w = 1.0f / pos.w; 
+	inline void Ndc2Screen (Vector4 &pos) { pos.x = (pos.x + 1)* 0.5f * width; pos.y = (pos.y + 1)* 0.5f * height; pos.z = pos.w; pos.w = 1.0f / pos.w;
 	} // convert from normalized device coordinate to screen coordinate
 
 	static inline bool BackFaceCulling (const Vector4 &p0, const Vector4 &p1, const Vector4 &p2) { return (p0.Dot ((p1 - p0).Cross (p2 - p0)) >= 0); }
@@ -323,11 +323,11 @@ struct Renderer {
                 Vertex v = { { x + 0.5f, y + 0.5f, 0 } };
 
 				// v is outside the triangle
-				if (TriangleCheck (v0, v1, v2, v, weight)) continue; 
+				if (TriangleCheck (v0, v1, v2, v, weight)) continue;
 
 				// perspective correct interpolation
 				Interpolate (v0, v1, v2, v, weight);
-				
+
 				// z test
                 if (v.pos.z >= depthBuffer[x + y * width]) continue;
 
@@ -350,7 +350,7 @@ struct Renderer {
 	} // note that the result of edge function could be represent as area as well.
 
     static inline void Interpolate (const Vertex &v0, const Vertex &v1, const Vertex &v2, Vertex &v,const Vector4 &w) {
-        v.pos.z = 1.0f / (w.x + w.y + w.z); 
+        v.pos.z = 1.0f / (w.x + w.y + w.z);
 		v.viewPos = (v0.viewPos * w.x + v1.viewPos * w.y + v2.viewPos * w.z) * v.pos.z;
 		v.normal = (v0.normal * w.x + v1.normal * w.y + v2.normal * w.z) * v.pos.z;
 		v.color = (v0.color * w.x + v1.color * w.y + v2.color * w.z) * v.pos.z;
@@ -366,7 +366,7 @@ struct Renderer {
         return color;
     } // get pixel color from texture
 
-	static inline float Saturate (float n) { return std::min (1.0f, std::max (0.0f, n)); 
+	static inline float Saturate (float n) { return std::min (1.0f, std::max (0.0f, n));
 	} // clamp n to range [0.0, 1.0]
 
     static inline Vector4 BilinearFiltering (const Texture &texture, float s, float t) {
@@ -383,13 +383,13 @@ struct Renderer {
         if (s <= 0.5f || s >= texture.smax) return NearestNeighbor (texture, s, t);
         float supper = s + 0.5f, fs = std::floor(supper), ws = supper - fs;
         return (NearestNeighbor (texture, fs, t) * ws + NearestNeighbor (texture, fs - 1.0f, t) * (1.0f - ws));
-    } // Texture filtering : horizontal linear filtering 
+    } // Texture filtering : horizontal linear filtering
 
     static inline Vector4 LinearFilteringV (const Texture &texture, float s, float t) {
         if (t <= 0.5f || t >= texture.tmax) return NearestNeighbor (texture, s, t);
         float tupper = t + 0.5f, ts = std::floor(tupper), wt = tupper - ts;
         return (NearestNeighbor (texture, s, ts) * wt + NearestNeighbor (texture, s, ts - 1.0f) * (1.0f - wt));
-    } // texture filtering : vertical linear filtering 
+    } // texture filtering : vertical linear filtering
 
     static inline Vector4 NearestNeighbor (const Texture &texture, float s, float t) {
         return texture.data[(int)std::round (s) + (int)std::round (t) * texture.width];
