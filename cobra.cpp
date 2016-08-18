@@ -252,13 +252,15 @@ struct Renderer {
 	Matrix4 projMat, viewMat, mvMat, mvpMat, nmvMat;
     Light light;
 
-	Renderer (int w, int h, const Matrix4 &pm) : width (w), height (h), frameBuffer (w * h, { 0, 0, 0.34f, 0 }), depthBuffer (w * h, std::numeric_limits<float>::max ()), projMat (pm) { }
+	Renderer (int w, int h) : width (w), height (h), frameBuffer (w * h, { 0, 0, 0.34f, 0 }), depthBuffer (w * h, std::numeric_limits<float>::max ()) {	}
 
-	void SetLight (const Vector4 &dir, const Vector4 &ambi, const Vector4 &diff, const Vector4 &spec) { 
-		light.dir = dir.Normalize (); light.ambientColor = ambi; light.diffuseColor = diff;	light.specularColor = spec;
-	} // we support one direction light right now.
+	void SetFrustum (float hfov, float ratio, float n, float f) { projMat = CreateProjectionMatrix (hfov, ratio, n, f); }
 
     void SetCamera (const Vector4 &look, const Vector4 &at) { viewMat = CreateViewMatrix (look, at, { 0.0f, 1.0f, 0.0f }); }
+
+	void SetLight (const Vector4 &dir, const Vector4 &ambi, const Vector4 &diff, const Vector4 &spec) {
+		light.dir = dir.Normalize (); light.ambientColor = ambi; light.diffuseColor = diff;	light.specularColor = spec;
+	} // we support one direction light right now.
 
 	void DrawModel (Model &model, bool drawTex = true, bool drawWireFrame = false) {
 		// again, using row-major order matrix, the calculation order is "pos * modelMat * viewMat * projMat".
@@ -275,21 +277,27 @@ struct Renderer {
 		for (auto &index : model.indexBuffer) {
 			Vertex outVertex[3];
 			bool badTriangle = false;
+
 			for (int i = 0; i < 3; i++) {
+				// run vertex shader for every vertex
 				VertexShader (model.posBuffer[index.pos[i]], model.normalBuffer[index.normal[i]], model.uvBuffer[index.uv[i]], outVertex[i]);
 
 				if (outVertex[i].pos.z < 0.0f || outVertex[i].pos.z > 1.0f) { 
 					badTriangle = true;	break; 
-				} // this vertex is outside the view frustum, this triangle will be ignored.
+				} // check the vertex inside or outside the view frustum
 
-				Ndc2Screen (outVertex[i].pos); 
-			}
+				Ndc2Screen (outVertex[i].pos); // convert to screen coordinate
+			} // travers all three vertex
 
+			// skip triangles that are invisible
 			if (badTriangle || BackFaceCulling (outVertex[0].viewPos, outVertex[1].viewPos, outVertex[2].viewPos)) continue;
 
+			// texture mode drawing
             if (drawTex) FillTriangle (model, outVertex[0], outVertex[1], outVertex[2]); 
-			if (drawWireFrame) DrawTriangle (outVertex[0], outVertex[1], outVertex[2], { 0, 1.0f, 0, 0 }); // wireframe mode
-		} // travers all triangle
+
+			// wireframe mode drawing
+			if (drawWireFrame) DrawTriangle (outVertex[0], outVertex[1], outVertex[2], { 0, 1.0f, 0, 0 }); 
+		} // travers all triangles
 	}
 
 	inline void Ndc2Screen (Vector4 &pos) { pos.x = (pos.x + 1)* 0.5f * width; pos.y = (pos.y + 1)* 0.5f * height; pos.z = pos.w; pos.w = 1.0f / pos.w; 
@@ -305,7 +313,7 @@ struct Renderer {
 			return (TextureLookup (model.material.texture, v.uv.x, v.uv.y) * (light.ambientColor * model.material.ka + light.diffuseColor * lambertian * model.material.kd) + light.specularColor * specular * model.material.ks);
 		}; // blinn-phong shading.
 
-		float area = EdgeFunc (v0.pos, v1.pos, v2.pos);
+		Vector4 weight = { 0, 0, 0, EdgeFunc (v0.pos, v1.pos, v2.pos) };
         int x0 = std::max (0, (int)std::floor (std::min (v0.pos.x, std::min (v1.pos.x, v2.pos.x))));
         int y0 = std::max (0, (int)std::floor (std::min (v0.pos.y, std::min (v1.pos.y, v2.pos.y))));
         int x1 = std::min (width - 1, (int)std::floor (std::max (v0.pos.x, std::max (v1.pos.x, v2.pos.x))));
@@ -313,28 +321,41 @@ struct Renderer {
         for (int y = y0; y <= y1; y++) { //       only check for points that are inside the screen
             for (int x = x0; x <= x1; x++) { //   and inside the triangle bounding box
                 Vertex v = { { x + 0.5f, y + 0.5f, 0 } };
-                if (!Interpolate (v0, v1, v2, v, area)) continue; // v is outside the triangle
-                if (v.pos.z >= depthBuffer[x + y * width]) continue; // z test
+
+				// v is outside the triangle
+				if (TriangleCheck (v0, v1, v2, v, weight)) continue; 
+
+				// perspective corrected interpolate
+				Interpolate (v0, v1, v2, v, weight);
+				
+				// z test
+                if (v.pos.z >= depthBuffer[x + y * width]) continue;
+
+				// pixel shader needs to be run for every fragment of the triangle
+				// and then write the result to frame/depth buffer
                 DrawPoint (x, y, PixelShader (v), v.pos.z);
             }
         } // use edge function to draw triangle.
 	} // fill triangle with color
 
-    static bool Interpolate (const Vertex &v0, const Vertex &v1, const Vertex &v2, Vertex &v, float area) {
-        float w0 = EdgeFunc (v1.pos, v2.pos, v.pos) * v0.pos.w / area;
-        float w1 = EdgeFunc (v2.pos, v0.pos, v.pos) * v1.pos.w / area;
-        float w2 = EdgeFunc (v0.pos, v1.pos, v.pos) * v2.pos.w / area;
-        if (w0 < 0 || w1 < 0 || w2 < 0) return false; 
-        v.pos.z = 1.0f / (w0 + w1 + w2); // perspective corrected interpolate.
-		v.viewPos = (v0.viewPos * w0 + v1.viewPos * w1 + v2.viewPos * w2) * v.pos.z;
-		v.normal = (v0.normal * w0 + v1.normal * w1 + v2.normal * w2) * v.pos.z;
-		v.color = (v0.color * w0 + v1.color * w1 + v2.color * w2) * v.pos.z;
-		v.uv = (v0.uv * w0 + v1.uv * w1 + v2.uv * w2) * v.pos.z;
-        return true; 
-    } // yes we interpolate all variables, no matter they are going to be used or not.
+	static bool TriangleCheck (const Vertex &v0, const Vertex &v1, const Vertex &v2, Vertex &v, Vector4 &w) {
+		w.x = EdgeFunc (v1.pos, v2.pos, v.pos) * v0.pos.w / w.w;
+		w.y = EdgeFunc (v2.pos, v0.pos, v.pos) * v1.pos.w / w.w;
+		w.z = EdgeFunc (v0.pos, v1.pos, v.pos) * v2.pos.w / w.w;
+		return (w.x < 0 || w.y < 0 || w.z < 0);
+	} // return true if v is outside the triangle
 
-    static inline float EdgeFunc (const Vector4 &p0, const Vector4 &p1, const Vector4 &p2) { return ((p2.x - p0.x) * (p1.y - p0.y) - (p2.y - p0.y) * (p1.x - p0.x));
-	} // the result of edge function could be represent as area as well.
+	static inline float EdgeFunc (const Vector4 &p0, const Vector4 &p1, const Vector4 &p2) {
+		return ((p2.x - p0.x) * (p1.y - p0.y) - (p2.y - p0.y) * (p1.x - p0.x));
+	} // note that the result of edge function could be represent as area as well.
+
+    static inline void Interpolate (const Vertex &v0, const Vertex &v1, const Vertex &v2, Vertex &v,const Vector4 &w) {
+        v.pos.z = 1.0f / (w.x + w.y + w.z); 
+		v.viewPos = (v0.viewPos * w.x + v1.viewPos * w.y + v2.viewPos * w.z) * v.pos.z;
+		v.normal = (v0.normal * w.x + v1.normal * w.y + v2.normal * w.z) * v.pos.z;
+		v.color = (v0.color * w.x + v1.color * w.y + v2.color * w.z) * v.pos.z;
+		v.uv = (v0.uv * w.x + v1.uv * w.y + v2.uv * w.z) * v.pos.z;
+    } // yes we interpolate all variables, no matter they are going to be used or not.
 
     static inline Vector4 TextureLookup (const Texture &texture, float s, float t) {
         Vector4 color = { 0.87f, 0.87f, 0.87f, 0 }; // default color
@@ -343,7 +364,7 @@ struct Renderer {
             color = BilinearFiltering (texture, s * (texture.width - 1), t * (texture.height - 1));
         }
         return color;
-    }
+    } // get pixel color from texture
 
 	static inline float Saturate (float n) { return std::min (1.0f, std::max (0.0f, n)); 
 	} // clamp n to range [0.0, 1.0]
@@ -416,9 +437,10 @@ struct Renderer {
 int main () {
 	// renderer setup
 	const int WIDTH = 1024, HEIGHT = 768;
-	Renderer renderer (WIDTH, HEIGHT, CreateProjectionMatrix ((float)M_PI_2, (float)WIDTH / (float)HEIGHT, 0.1f, 1000.0f));
+	Renderer renderer (WIDTH, HEIGHT);
+	renderer.SetFrustum ((float)M_PI_2, (float)WIDTH / (float)HEIGHT, 0.1f, 1000.0f);
+	renderer.SetCamera ({ 0.0f, 3.0f, 5.0f }, { 0.0f, 0.0f, 0.0f });
 	renderer.SetLight ({ 0.0f, 1.0f, 2.0f }, { 0.5f, 0.0f, 0.0f, 0 }, { 1.0f, 1.0, 1.0, 0 }, { 1.0f, 1.0f, 1.0f, 0 });
-    renderer.SetCamera({ 0.0f, 3.0f, 5.0f }, { 0.0f, 0.0f, 0.0f });
 
 	// Model (filepath, position, material)
 	Model sphere ("res/sphere", { 2.5f, 0.5f, 1.5f }, { 0.1f, 1.0f, 1.2f });

@@ -3,6 +3,14 @@
 *.lo
 *.o
 
+# Visual Studio files
+*.iobj
+*.ipdb
+*.pdb
+*.ilk
+*.db
+*.opendb
+
 # Precompiled Headers
 *.gch
 *.pch
@@ -27,5 +35,11 @@
 *.out
 *.app
 
-build
+# osx files
 .DS_Store
+
+# cobra project files
+x86
+Debug
+Release
+screenshot.bmp
