@@ -17,7 +17,8 @@
 
 ###windows 
 
-用visual studio 2015打开vs\cobra.sln，编译即可。
+用visual studio 2015打开vs\cobra.sln，编译然后运行根目录下的cobra.exe。
+
 如果要在vs里调试运行，请在项目properties设置将 Debuggin->Working Directory 设为"$(ProjectDir)..\"。
 
 ###osx/linux
@@ -43,6 +44,7 @@
 				测试像素在不在三角形内
 				透视正确的插值
 				depth(z) buffer测试
+				调用pixel shader
 				frame/depth写入
 		线框渲染模式
 			2d画线算法
