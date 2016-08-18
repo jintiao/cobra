@@ -325,7 +325,7 @@ struct Renderer {
 				// v is outside the triangle
 				if (TriangleCheck (v0, v1, v2, v, weight)) continue; 
 
-				// perspective corrected interpolate
+				// perspective correct interpolation
 				Interpolate (v0, v1, v2, v, weight);
 				
 				// z test

@@ -10,6 +10,8 @@
 *.ilk
 *.db
 *.opendb
+*.vcxproj.user
+.vs
 
 # Precompiled Headers
 *.gch
