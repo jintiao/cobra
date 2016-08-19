@@ -10,22 +10,29 @@ struct Vector4 {
 	float x, y, z, w;
 	Vector4 operator- () const { return{ -x, -y, -z, -w }; }
 	Vector4 operator+ (const Vector4 &rhs) const { return{ x + rhs.x, y + rhs.y, z + rhs.z, w + rhs.w }; }
-	Vector4 operator- (const Vector4 &rhs) const { return { x - rhs.x, y - rhs.y, z - rhs.z, w - rhs.w }; }
+	Vector4 operator- (const Vector4 &rhs) const { return{ x - rhs.x, y - rhs.y, z - rhs.z, w - rhs.w }; }
 	Vector4 operator* (const Vector4 &rhs) const { return{ x* rhs.x, y * rhs.y, z * rhs.z, w * rhs.w }; }
 	Vector4 operator* (float f) const { return{ x * f, y * f, z * f, w * f }; }
-	Vector4 Cross (const Vector4 &rhs) const { return { y * rhs.z - z * rhs.y, z * rhs.x - x * rhs.z, x * rhs.y - y * rhs.x }; }
+	Vector4 Cross (const Vector4 &rhs) const { return{ y * rhs.z - z * rhs.y, z * rhs.x - x * rhs.z, x * rhs.y - y * rhs.x }; }
 	float Dot (const Vector4 &rhs) const { return (x * rhs.x + y * rhs.y + z * rhs.z); }
-	Vector4 Normalize () const { float invlen = 1.0f / sqrtf (x * x + y * y + z * z); return { x * invlen, y * invlen, z * invlen }; };
+	Vector4 Normalize () const { 
+		float invlen = 1.0f / sqrtf (x * x + y * y + z * z); 
+		return{ x * invlen, y * invlen, z * invlen }; 
+	};
 }; // we use vecter4 representing position/direction/uv/color etc.
 
 struct Matrix4 {
 	float m[4][4];
-	Matrix4 () { memset (m, 0, sizeof (m)); m[0][0] = m[1][1] = m[2][2] = m[3][3] = 1.0f; }
-    Matrix4 operator* (const Matrix4 &rhs) const {
-        Matrix4 t;
-        for (int i = 0; i < 4; i++) { for (int j = 0; j < 4; j++) { t.m[i][j] = m[i][0] * rhs.m[0][j] + m[i][1] * rhs.m[1][j] + m[i][2] * rhs.m[2][j] + m[i][3] * rhs.m[3][j]; } }
-        return t;
-    }
+	Matrix4 () { 
+		memset (m, 0, sizeof (m)); 
+		m[0][0] = m[1][1] = m[2][2] = m[3][3] = 1.0f; 
+	}
+
+	Matrix4 operator* (const Matrix4 &rhs) const {
+		Matrix4 t;
+		for (int i = 0; i < 4; i++) { for (int j = 0; j < 4; j++) { t.m[i][j] = m[i][0] * rhs.m[0][j] + m[i][1] * rhs.m[1][j] + m[i][2] * rhs.m[2][j] + m[i][3] * rhs.m[3][j]; } }
+		return t;
+	}
 
 	void Invert () {
 		Matrix4	temm = *this;
@@ -58,18 +65,18 @@ struct Matrix4 {
 		m[1][2] -= tmp[2] * temm.m[0][0] + tmp[7] * temm.m[1][0] + tmp[10] * temm.m[3][0];
 		m[1][3] = tmp[4] * temm.m[0][0] + tmp[9] * temm.m[1][0] + tmp[10] * temm.m[2][0];
 		m[1][3] -= tmp[5] * temm.m[0][0] + tmp[8] * temm.m[1][0] + tmp[11] * temm.m[2][0];
-		tmp[0] = temm.m[2][0]*temm.m[3][1];
-		tmp[1] = temm.m[3][0]*temm.m[2][1];
-		tmp[2] = temm.m[1][0]*temm.m[3][1];
-		tmp[3] = temm.m[3][0]*temm.m[1][1];
-		tmp[4] = temm.m[1][0]*temm.m[2][1];
-		tmp[5] = temm.m[2][0]*temm.m[1][1];
-		tmp[6] = temm.m[0][0]*temm.m[3][1];
-		tmp[7] = temm.m[3][0]*temm.m[0][1];
-		tmp[8] = temm.m[0][0]*temm.m[2][1];
-		tmp[9] = temm.m[2][0]*temm.m[0][1];
-		tmp[10] = temm.m[0][0]*temm.m[1][1];
-		tmp[11] = temm.m[1][0]*temm.m[0][1];
+		tmp[0] = temm.m[2][0] * temm.m[3][1];
+		tmp[1] = temm.m[3][0] * temm.m[2][1];
+		tmp[2] = temm.m[1][0] * temm.m[3][1];
+		tmp[3] = temm.m[3][0] * temm.m[1][1];
+		tmp[4] = temm.m[1][0] * temm.m[2][1];
+		tmp[5] = temm.m[2][0] * temm.m[1][1];
+		tmp[6] = temm.m[0][0] * temm.m[3][1];
+		tmp[7] = temm.m[3][0] * temm.m[0][1];
+		tmp[8] = temm.m[0][0] * temm.m[2][1];
+		tmp[9] = temm.m[2][0] * temm.m[0][1];
+		tmp[10] = temm.m[0][0] * temm.m[1][1];
+		tmp[11] = temm.m[1][0] * temm.m[0][1];
 		m[2][0] = tmp[0] * temm.m[1][3] + tmp[3] * temm.m[2][3] + tmp[4] * temm.m[3][3];
 		m[2][0] -= tmp[1] * temm.m[1][3] + tmp[2] * temm.m[2][3] + tmp[5] * temm.m[3][3];
 		m[2][1] = tmp[1] * temm.m[0][3] + tmp[6] * temm.m[2][3] + tmp[9] * temm.m[3][3];
@@ -96,7 +103,9 @@ struct Matrix4 {
 	Matrix4 InvertTranspose () const {
 		Matrix4 t, o = *this;
 		o.Invert ();
-		for (int i = 0; i < 4; i++) { for (int j = 0; j < 4; j++) {	t.m[i][j] = o.m[j][i]; } }
+		for (int i = 0; i < 4; i++) 
+			for (int j = 0; j < 4; j++) 
+				t.m[i][j] = o.m[j][i];
 		return t;
 	} // (M-1)T
 }; // our matrix is in row-major order.
@@ -112,9 +121,9 @@ Vector4 TransformPoint (const Vector4 &b, const Matrix4 &mat) {
 
 Vector4 TransformDir (const Vector4 &b, const Matrix4 &mat) {
 	Vector4 v = { 0 };
-	v.x = b.x * mat.m[0][0] * + b.y * mat.m[1][0] + b.z * mat.m[2][0];
-	v.y = b.x * mat.m[0][1] * b.x + b.y * mat.m[1][1] + b.z * mat.m[2][1];
-	v.z = b.x * mat.m[0][2] * b.x + b.y * mat.m[1][2] + b.z * mat.m[2][2];
+	v.x = b.x * mat.m[0][0] + b.y * mat.m[1][0] + b.z * mat.m[2][0];
+	v.y = b.x * mat.m[0][1] + b.y * mat.m[1][1] + b.z * mat.m[2][1];
+	v.z = b.x * mat.m[0][2] + b.y * mat.m[1][2] + b.z * mat.m[2][2];
 	return v;
 } // using matrix to transform a direction.
 
@@ -168,11 +177,13 @@ void SaveBmp (std::vector<Vector4> &frameBuffer, int width, int height, std::str
 
 bool LoadBmp (Texture &texture, std::string file) {
 	std::ifstream is (file, std::ios_base::binary);
-    if (!is) return false;
+	if (!is) return false;
 	unsigned char buf[54];
 	is.read ((char *)buf, sizeof (buf));
+	// in bmp header, height could be negtive
 	texture.width = *(int *)&buf[18], texture.height = abs (*(int *)&buf[22]);
-    texture.smax = texture.width - 1.5f, texture.tmax = texture.height - 1.5f;
+	// smax/tmax is use for texture filtering
+	texture.smax = texture.width - 1.5f, texture.tmax = texture.height - 1.5f;
 	int bytes = buf[28] / 8, count = texture.width * texture.height * bytes;
 	unsigned char *tmp = new unsigned char[count];
 	is.read ((char *)tmp, count);
@@ -182,8 +193,8 @@ bool LoadBmp (Texture &texture, std::string file) {
 		color = { tmp[count + 2] / 255.0f, tmp[count + 1] / 255.0f, tmp[count + 0] / 255.0f, 0.0f };
 		count += bytes;
 	}
-	delete []tmp;
-    return true;
+	delete[]tmp;
+	return true;
 } // load bmp into texture
 
 struct Model {
@@ -195,8 +206,9 @@ struct Model {
 	Model (std::string name, const Vector4 &pos, Material m) : material (m), posBuffer (1, { 0 }), normalBuffer (1, { 0 }), uvBuffer (1, { 0 }) {
 		worldMat = CreateModelMatrix (pos);
 		LoadObj (name + ".obj");
-		if (uvBuffer.size () > 1) LoadBmp (material.texture, name + ".bmp");
-    }
+		if (uvBuffer.size () > 1) // load texture only if the model has uv data.
+			LoadBmp (material.texture, name + ".bmp");
+	}
 
 	void LoadObj (std::string str) {
 		float x, y, z;
@@ -234,14 +246,14 @@ struct Model {
 				}
 				indexBuffer.push_back (index);
 			}
-		}
+		} // end parsing
 		for (auto &index : indexBuffer) {
 			for (int i = 0; i < 3; i++) {
 				if (index.pos[i] < 0) index.pos[i] += (int)posBuffer.size ();
 				if (index.uv[i] < 0) index.uv[i] += (int)uvBuffer.size ();
 				if (index.normal[i] < 0) index.normal[i] += (int)normalBuffer.size ();
-			}
-		} // deal with negative index
+			} // deal with negative index
+		}
 	} // obj is a text base model format
 };
 
@@ -250,30 +262,30 @@ struct Renderer {
 	std::vector<Vector4> frameBuffer;
 	std::vector<float> depthBuffer;
 	Matrix4 projMat, viewMat, mvMat, mvpMat, nmvMat;
-    Light light;
+	Light light;
 
 	Renderer (int w, int h) : width (w), height (h), frameBuffer (w * h, { 0, 0, 0.34f, 0 }), depthBuffer (w * h, std::numeric_limits<float>::max ()) {	}
 
 	void SetFrustum (float hfov, float ratio, float n, float f) { projMat = CreateProjectionMatrix (hfov, ratio, n, f); }
 
-    void SetCamera (const Vector4 &look, const Vector4 &at) { viewMat = CreateViewMatrix (look, at, { 0.0f, 1.0f, 0.0f }); }
+	void SetCamera (const Vector4 &look, const Vector4 &at) { viewMat = CreateViewMatrix (look, at, { 0.0f, 1.0f, 0.0f }); }
 
 	void SetLight (const Vector4 &pos, const Vector4 &ambi, const Vector4 &diff, const Vector4 &spec) {
 		light.pos = pos; light.ambientColor = ambi; light.diffuseColor = diff;	light.specularColor = spec;
-	} // we support one direction light right now.
+	} // we support one point light right now.
 
 	void DrawModel (Model &model, bool drawTex = true, bool drawWireFrame = false) {
 		// again, using row-major order matrix, the calculation order is "pos * modelMat * viewMat * projMat".
 		// if you are using column-major order matrix, it will be "projMat * viewMat * modelMat * pos".
 		mvMat = model.worldMat * viewMat, mvpMat = mvMat * projMat, nmvMat = mvMat.InvertTranspose ();
-		
-		// we need this in pixel shader
+
+		// we need light position(in view space) in pixel shader
 		light.viewPos = TransformPoint (light.pos, mvMat);
 
 		auto VertexShader = [this] (const Vector4 &pos, const Vector4 &normal, const Vector4 &uv, Vertex &outVertex) {
 			outVertex.pos = TransformPoint (pos, mvpMat);
 			outVertex.viewPos = TransformPoint (pos, mvMat);
-            outVertex.normal = TransformDir(normal, nmvMat);
+			outVertex.normal = TransformDir (normal, nmvMat);
 			outVertex.uv = uv;
 		}; // note that transform point/dir/normal require different matrix.
 
@@ -296,14 +308,15 @@ struct Renderer {
 			if (badTriangle || BackFaceCulling (outVertex[0].viewPos, outVertex[1].viewPos, outVertex[2].viewPos)) continue;
 
 			// texture mode drawing
-            if (drawTex) FillTriangle (model, outVertex[0], outVertex[1], outVertex[2]);
+			if (drawTex) FillTriangle (model, outVertex[0], outVertex[1], outVertex[2]);
 
 			// wireframe mode drawing
 			if (drawWireFrame) DrawTriangle (outVertex[0], outVertex[1], outVertex[2], { 0, 1.0f, 0, 0 });
 		} // travers all triangles
 	}
 
-	inline void Ndc2Screen (Vector4 &pos) { pos.x = (pos.x + 1)* 0.5f * width; pos.y = (pos.y + 1)* 0.5f * height; pos.z = pos.w; pos.w = 1.0f / pos.w;
+	inline void Ndc2Screen (Vector4 &pos) {
+		pos.x = (pos.x + 1)* 0.5f * width; pos.y = (pos.y + 1)* 0.5f * height; pos.z = pos.w; pos.w = 1.0f / pos.w;
 	} // convert from normalized device coordinate to screen coordinate
 
 	static inline bool BackFaceCulling (const Vector4 &p0, const Vector4 &p1, const Vector4 &p2) { return (p0.Dot ((p1 - p0).Cross (p2 - p0)) >= 0); }
@@ -323,13 +336,13 @@ struct Renderer {
 		}; // blinn-phong shading.
 
 		Vector4 weight = { 0, 0, 0, EdgeFunc (v0.pos, v1.pos, v2.pos) };
-        int x0 = std::max (0, (int)std::floor (std::min (v0.pos.x, std::min (v1.pos.x, v2.pos.x))));
-        int y0 = std::max (0, (int)std::floor (std::min (v0.pos.y, std::min (v1.pos.y, v2.pos.y))));
-        int x1 = std::min (width - 1, (int)std::floor (std::max (v0.pos.x, std::max (v1.pos.x, v2.pos.x))));
-        int y1 = std::min (height - 1, (int)std::floor (std::max (v0.pos.y, std::max (v1.pos.y, v2.pos.y))));
-        for (int y = y0; y <= y1; y++) { //       only check for points that are inside the screen
-            for (int x = x0; x <= x1; x++) { //   and inside the triangle bounding box
-                Vertex v = { { x + 0.5f, y + 0.5f, 0 } };
+		int x0 = std::max (0, (int)std::floor (std::min (v0.pos.x, std::min (v1.pos.x, v2.pos.x))));
+		int y0 = std::max (0, (int)std::floor (std::min (v0.pos.y, std::min (v1.pos.y, v2.pos.y))));
+		int x1 = std::min (width - 1, (int)std::floor (std::max (v0.pos.x, std::max (v1.pos.x, v2.pos.x))));
+		int y1 = std::min (height - 1, (int)std::floor (std::max (v0.pos.y, std::max (v1.pos.y, v2.pos.y))));
+		for (int y = y0; y <= y1; y++) { //       only check for points that are inside the screen
+			for (int x = x0; x <= x1; x++) { //   and inside the triangle bounding box
+				Vertex v = { { x + 0.5f, y + 0.5f, 0 } };
 
 				// v is outside the triangle
 				if (TriangleCheck (v0, v1, v2, v, weight)) continue;
@@ -338,13 +351,13 @@ struct Renderer {
 				Interpolate (v0, v1, v2, v, weight);
 
 				// z test
-                if (v.pos.z >= depthBuffer[x + y * width]) continue;
+				if (v.pos.z >= depthBuffer[x + y * width]) continue;
 
 				// pixel shader needs to be run for every fragment of the triangle
 				// and then write the result to frame/depth buffer
-                DrawPoint (x, y, PixelShader (v), v.pos.z);
-            }
-        } // use edge function to draw triangle.
+				DrawPoint (x, y, PixelShader (v), v.pos.z);
+			}
+		} // use edge function to draw triangle.
 	} // fill triangle with color
 
 	static bool TriangleCheck (const Vertex &v0, const Vertex &v1, const Vertex &v2, Vertex &v, Vector4 &w) {
@@ -358,102 +371,103 @@ struct Renderer {
 		return ((p2.x - p0.x) * (p1.y - p0.y) - (p2.y - p0.y) * (p1.x - p0.x));
 	} // note that the result of edge function could be represent as area as well.
 
-    static inline void Interpolate (const Vertex &v0, const Vertex &v1, const Vertex &v2, Vertex &v,const Vector4 &w) {
-        v.pos.z = 1.0f / (w.x + w.y + w.z); // keep in maind that in TriangleCheck() we already done the (w = w * 1/z) part
+	static inline void Interpolate (const Vertex &v0, const Vertex &v1, const Vertex &v2, Vertex &v, const Vector4 &w) {
+		v.pos.z = 1.0f / (w.x + w.y + w.z); // keep in maind that in TriangleCheck() we already done the (w = w * 1/z) part
 		v.viewPos = (v0.viewPos * w.x + v1.viewPos * w.y + v2.viewPos * w.z) * v.pos.z;
 		v.normal = (v0.normal * w.x + v1.normal * w.y + v2.normal * w.z) * v.pos.z;
 		v.color = (v0.color * w.x + v1.color * w.y + v2.color * w.z) * v.pos.z;
 		v.uv = (v0.uv * w.x + v1.uv * w.y + v2.uv * w.z) * v.pos.z;
-    } // yes we interpolate all variables, no matter they are going to be used or not.
+	} // yes we interpolate all variables, no matter they are going to be used or not.
 
-    static inline Vector4 TextureLookup (const Texture &texture, float s, float t) {
-        Vector4 color = { 0.87f, 0.87f, 0.87f, 0 }; // default color
-        if (!texture.data.empty ()) {
-            s = Saturate (s), t = Saturate (t); // texture wrap
-            color = BilinearFiltering (texture, s * (texture.width - 1), t * (texture.height - 1));
-        }
-        return color;
-    } // get pixel color from texture
+	static inline Vector4 TextureLookup (const Texture &texture, float s, float t) {
+		Vector4 color = { 0.87f, 0.87f, 0.87f, 0 }; // default color
+		if (!texture.data.empty ()) {
+			s = Saturate (s), t = Saturate (t); // texture wrap
+			color = BilinearFiltering (texture, s * (texture.width - 1), t * (texture.height - 1));
+		}
+		return color;
+	} // get pixel color from texture
 
-	static inline float Saturate (float n) { return std::min (1.0f, std::max (0.0f, n));
+	static inline float Saturate (float n) {
+		return std::min (1.0f, std::max (0.0f, n));
 	} // clamp n to range [0.0, 1.0]
 
-    static inline Vector4 BilinearFiltering (const Texture &texture, float s, float t) {
-        if (s <= 0.5f || s >= texture.smax) return LinearFilteringV (texture, s, t);
-        if (t <= 0.5f || t >= texture.tmax) return LinearFilteringH (texture, s, t);
-        float supper = s + 0.5f, fs = std::floor(supper), ws = supper - fs, tupper = t + 0.5f, ts = std::floor(tupper), wt = tupper - ts;
-        return (NearestNeighbor (texture, fs, ts) * ws * wt +
-                NearestNeighbor (texture, fs, ts - 1.0f) * ws * (1.0f - wt) +
-                NearestNeighbor (texture, fs - 1.0f, ts) * (1.0f - ws) * wt +
-                NearestNeighbor (texture, fs - 1.0f, ts - 1.0f) * (1.0f - ws) * (1.0f - wt));
-    } // Texture filtering : Bilinear filtering
+	static inline Vector4 BilinearFiltering (const Texture &texture, float s, float t) {
+		if (s <= 0.5f || s >= texture.smax) return LinearFilteringV (texture, s, t);
+		if (t <= 0.5f || t >= texture.tmax) return LinearFilteringH (texture, s, t);
+		float supper = s + 0.5f, fs = std::floor (supper), ws = supper - fs, tupper = t + 0.5f, ts = std::floor (tupper), wt = tupper - ts;
+		return (NearestNeighbor (texture, fs, ts) * ws * wt +
+			NearestNeighbor (texture, fs, ts - 1.0f) * ws * (1.0f - wt) +
+			NearestNeighbor (texture, fs - 1.0f, ts) * (1.0f - ws) * wt +
+			NearestNeighbor (texture, fs - 1.0f, ts - 1.0f) * (1.0f - ws) * (1.0f - wt));
+	} // Texture filtering : Bilinear filtering
 
-    static inline Vector4 LinearFilteringH (const Texture &texture, float s, float t) {
-        if (s <= 0.5f || s >= texture.smax) return NearestNeighbor (texture, s, t);
-        float supper = s + 0.5f, fs = std::floor(supper), ws = supper - fs;
-        return (NearestNeighbor (texture, fs, t) * ws + NearestNeighbor (texture, fs - 1.0f, t) * (1.0f - ws));
-    } // Texture filtering : horizontal linear filtering
+	static inline Vector4 LinearFilteringH (const Texture &texture, float s, float t) {
+		if (s <= 0.5f || s >= texture.smax) return NearestNeighbor (texture, s, t);
+		float supper = s + 0.5f, fs = std::floor (supper), ws = supper - fs;
+		return (NearestNeighbor (texture, fs, t) * ws + NearestNeighbor (texture, fs - 1.0f, t) * (1.0f - ws));
+	} // Texture filtering : horizontal linear filtering
 
-    static inline Vector4 LinearFilteringV (const Texture &texture, float s, float t) {
-        if (t <= 0.5f || t >= texture.tmax) return NearestNeighbor (texture, s, t);
-        float tupper = t + 0.5f, ts = std::floor(tupper), wt = tupper - ts;
-        return (NearestNeighbor (texture, s, ts) * wt + NearestNeighbor (texture, s, ts - 1.0f) * (1.0f - wt));
-    } // texture filtering : vertical linear filtering
+	static inline Vector4 LinearFilteringV (const Texture &texture, float s, float t) {
+		if (t <= 0.5f || t >= texture.tmax) return NearestNeighbor (texture, s, t);
+		float tupper = t + 0.5f, ts = std::floor (tupper), wt = tupper - ts;
+		return (NearestNeighbor (texture, s, ts) * wt + NearestNeighbor (texture, s, ts - 1.0f) * (1.0f - wt));
+	} // texture filtering : vertical linear filtering
 
-    static inline Vector4 NearestNeighbor (const Texture &texture, float s, float t) {
-        return texture.data[(int)std::round (s) + (int)std::round (t) * texture.width];
-    } // texture filtering : nearest-neighbor interpolation
+	static inline Vector4 NearestNeighbor (const Texture &texture, float s, float t) {
+		return texture.data[(int)std::round (s) + (int)std::round (t) * texture.width];
+	} // texture filtering : nearest-neighbor interpolation
 
 	void DrawTriangle (const Vertex &v0, const Vertex &v1, const Vertex &v2, const Vector4 &color) {
 		DrawLine (v0.pos, v1.pos, color); DrawLine (v1.pos, v2.pos, color); DrawLine (v0.pos, v2.pos, color);
 	} // draw the edges of a triangle
 
-    void DrawLine (const Vector4 &p0, const Vector4 &p1, const Vector4 &color) {
-        int x0 = (int)std::floor(p0.x), x1 = (int)std::floor(p1.x), y0 = (int)std::floor(p0.y), y1 = (int)std::floor(p1.y);
-        if (abs (x1 - x0) >= abs (y1 - y0)) {
-            if (x0 > x1) { std::swap (x0, x1); std::swap (y0, y1); }
-            DrawLineInternal (x0, y0, x1, y1, color, false);
-        }
-        else {
-            if (y0 > y1) { std::swap (x0, x1); std::swap (y0, y1); }
-            DrawLineInternal (y0, x0, y1, x1, color, true);
-        }
-    } // bresenham line algorithm
-    void DrawLineInternal (int x0, int y0, int x1, int y1, const Vector4 &color, bool steep) {
-        if (y0 == y1) {
-            for (int x = x0, y = y0; x <= x1; x++)
-                steep ? DrawPoint (y, x, color, 0) : DrawPoint (x, y, color, 0);
-            return;
-        }
-        int dx = x1 - x0, dy = abs (y1 - y0), ystep = dy / (y1 - y0), delta = dy - dx, y = y0;
-        for (int x = x0; x <= x1; x++, delta += dy) {
-            steep ? DrawPoint (y, x, color, 0) : DrawPoint (x, y, color, 0);
-            if (delta >= 0) {
-                y += ystep;
-                delta -= dx;
-            }
-        }
-    } // still bresenham line algorithm
+	void DrawLine (const Vector4 &p0, const Vector4 &p1, const Vector4 &color) {
+		int x0 = (int)std::floor (p0.x), x1 = (int)std::floor (p1.x), y0 = (int)std::floor (p0.y), y1 = (int)std::floor (p1.y);
+		if (abs (x1 - x0) >= abs (y1 - y0)) {
+			if (x0 > x1) { std::swap (x0, x1); std::swap (y0, y1); }
+			DrawLineInternal (x0, y0, x1, y1, color, false);
+		} else {
+			if (y0 > y1) { std::swap (x0, x1); std::swap (y0, y1); }
+			DrawLineInternal (y0, x0, y1, x1, color, true);
+		}
+	} // bresenham line algorithm
+	void DrawLineInternal (int x0, int y0, int x1, int y1, const Vector4 &color, bool steep) {
+		if (y0 == y1) {
+			for (int x = x0, y = y0; x <= x1; x++)
+				steep ? DrawPoint (y, x, color, 0) : DrawPoint (x, y, color, 0);
+			return;
+		}
+		int dx = x1 - x0, dy = abs (y1 - y0), ystep = dy / (y1 - y0), delta = dy - dx, y = y0;
+		for (int x = x0; x <= x1; x++, delta += dy) {
+			steep ? DrawPoint (y, x, color, 0) : DrawPoint (x, y, color, 0);
+			if (delta >= 0) {
+				y += ystep;
+				delta -= dx;
+			}
+		}
+	} // still bresenham line algorithm
 
-    void DrawPoint (int x, int y, const Vector4 &color, float z) {
-        if (x >= 0 && x < width && y >= 0 && y < height) {
-            frameBuffer[x + y * width] = color; // write frame buffer
-            depthBuffer[x + y * width] = z; // write z buffer
-        }
-    } // need to check the range everytime, a little bit waste ha?
+	void DrawPoint (int x, int y, const Vector4 &color, float z) {
+		if (x >= 0 && x < width && y >= 0 && y < height) {
+			frameBuffer[x + y * width] = color; // write frame buffer
+			depthBuffer[x + y * width] = z; // write z buffer
+		}
+	} // need to check the range everytime, a little bit waste ha?
 };
 
 int main () {
 	// renderer setup
 	const int WIDTH = 1024, HEIGHT = 768;
 	Renderer renderer (WIDTH, HEIGHT);
+
 	renderer.SetFrustum ((float)M_PI_2, (float)WIDTH / (float)HEIGHT, 0.1f, 1000.0f);
 	renderer.SetCamera ({ 0.0f, 3.0f, 5.0f }, { 0.0f, 0.0f, 0.0f });
 	renderer.SetLight ({ -10.0f, 30.0f, 30.0f }, { 0.5f, 0.0f, 0.0f, 0 }, { 0.8f, 0.8f, 0.8f, 0 }, { 0.5f, 0.5f, 0.5f, 0 });
 
 	// Model (filepath, position, material)
 	Model sphere ("res/sphere", { 2.5f, 0.5f, 1.5f }, { 0.1f, 1.0f, 0.5f });
-    renderer.DrawModel (sphere, true, false);
+	renderer.DrawModel (sphere, true, false);
 	Model bunny ("res/bunny", { 0.0f, 0.0f, 0.0f }, { 0.1f, 0.8f, 0.7f });
 	renderer.DrawModel (bunny, true, false);
 	Model cube ("res/cube", { -2.0f, 0.0f, 2.0f }, { 0.3f, 0.8f, 0.8f });
