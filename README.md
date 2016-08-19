@@ -28,41 +28,30 @@
 
 ##技术细节
 
-###程序大致流程
+程序大致流程如下
 ```
 创建renderer
 	创建frame/depth(z) buffer
-设置摄像机
+设置摄像机 // projection/view matrix
 创建model
-	创建vertex/index buffer
-	创建texture
+	创建vertex/index buffer // obj模型文件读入
+	创建texture // bmp文件读入
 渲染model
 	遍历model的所有三角形，对于每个三角形
-		对三个顶点分别调用vertex shader
-		剔除测试
-		光栅化三角形
-			计算三角形的包围盒，对于包围盒内的每个像素
-				测试像素在不在三角形内
-				透视正确的插值
-				depth(z) buffer测试
-				调用pixel shader
-				frame/depth写入
+		对三个顶点分别调用vertex shader // 坐标系转换
+		剔除测试 // backface culling
+		光栅化三角形 
+			计算三角形的包围盒，对于包围盒内的每个像素 // triangle bounding box
+				像素测试 // triangle edge function
+				插值 // perspective correct intepolation
+				depth/z buffer测试
+				调用pixel shader // blinn-phong shading
+				frame/depth写入 // texture bilinear filtering
 		线框渲染模式
-			2d画线算法
-				frame/depth写入
-frame buffer导出为图片
+			2d画线算法 // bresenham's line algorithm
+				frame/depth写入 
+frame buffer导出为图片 // bmp写入
 ```
-
-### 相关名词
-* local/world/view/projection/screen coordinate
-* triangle edge function
-* perspective correct interpolation
-* backface culling
-* depth buffer test
-* texture bilinear filtering
-* directional light
-* blinn-phong shading
-* bresenham line algorithm
 
 ##参考资料
 
