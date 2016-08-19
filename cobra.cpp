@@ -311,16 +311,14 @@ struct Renderer {
 	void FillTriangle (Model &model, const Vertex &v0, const Vertex &v1, const Vertex &v2) {
 		auto PixelShader = [&model, this] (Vertex &v) -> Vector4 {
 			auto ldir = (light.viewPos - v.viewPos).Normalize ();
-			auto vnormal = v.normal.Normalize ();
-			auto lambertian = std::max (0.0f, ldir.Dot (vnormal));
+			auto lambertian = std::max (0.0f, ldir.Dot (v.normal));
 			auto specular = 0.0f;
 			if (lambertian > 0) {
 				auto viewDir = (-v.viewPos).Normalize ();
 				auto half = (ldir + viewDir).Normalize ();
-				auto angle = std::max (0.0f, half.Dot (vnormal));
+				auto angle = std::max (0.0f, half.Dot (v.normal));
 				specular = std::pow (angle, 16.0f);
 			}
-			//return (light.specularColor * specular * model.material.ks);
 			return (TextureLookup (model.material.texture, v.uv.x, v.uv.y) * (light.ambientColor * model.material.ka + light.diffuseColor * lambertian * model.material.kd) + light.specularColor * specular * model.material.ks);
 		}; // blinn-phong shading.
 
