@@ -149,7 +149,7 @@ struct Vertex { Vector4 pos, uv, normal, viewPos, color; };
 struct Index { int pos[3], uv[3], normal[3]; };
 struct Texture { int width, height; float smax, tmax; std::vector<Vector4> data; };
 struct Material { float ka, kd, ks; Texture texture; };
-struct Light { Vector4 dir, ambientColor, diffuseColor, specularColor; };
+struct Light { Vector4 pos, viewPos, ambientColor, diffuseColor, specularColor; };
 
 void SaveBmp (std::vector<Vector4> &frameBuffer, int width, int height, std::string file) {
 #define INT2CHAR_BIT(num, bit) (unsigned char)(((num) >> (bit)) & 0xff)
@@ -258,14 +258,17 @@ struct Renderer {
 
     void SetCamera (const Vector4 &look, const Vector4 &at) { viewMat = CreateViewMatrix (look, at, { 0.0f, 1.0f, 0.0f }); }
 
-	void SetLight (const Vector4 &dir, const Vector4 &ambi, const Vector4 &diff, const Vector4 &spec) {
-		light.dir = dir.Normalize (); light.ambientColor = ambi; light.diffuseColor = diff;	light.specularColor = spec;
+	void SetLight (const Vector4 &pos, const Vector4 &ambi, const Vector4 &diff, const Vector4 &spec) {
+		light.pos = pos; light.ambientColor = ambi; light.diffuseColor = diff;	light.specularColor = spec;
 	} // we support one direction light right now.
 
 	void DrawModel (Model &model, bool drawTex = true, bool drawWireFrame = false) {
 		// again, using row-major order matrix, the calculation order is "pos * modelMat * viewMat * projMat".
 		// if you are using column-major order matrix, it will be "projMat * viewMat * modelMat * pos".
 		mvMat = model.worldMat * viewMat, mvpMat = mvMat * projMat, nmvMat = mvMat.InvertTranspose ();
+		
+		// we need this in pixel shader
+		light.viewPos = TransformPoint (light.pos, mvMat);
 
 		auto VertexShader = [this] (const Vector4 &pos, const Vector4 &normal, const Vector4 &uv, Vertex &outVertex) {
 			outVertex.pos = TransformPoint (pos, mvpMat);
@@ -307,9 +310,17 @@ struct Renderer {
 
 	void FillTriangle (Model &model, const Vertex &v0, const Vertex &v1, const Vertex &v2) {
 		auto PixelShader = [&model, this] (Vertex &v) -> Vector4 {
-			auto lambertian = std::max (0.0f, light.dir.Dot (v.normal));
+			auto ldir = (light.viewPos - v.viewPos).Normalize ();
+			auto vnormal = v.normal.Normalize ();
+			auto lambertian = std::max (0.0f, ldir.Dot (vnormal));
 			auto specular = 0.0f;
-			if (lambertian > 0) specular = std::pow (Saturate ((light.dir - v.viewPos).Normalize ().Dot (v.normal)), 16.0f);
+			if (lambertian > 0) {
+				auto viewDir = (-v.viewPos).Normalize ();
+				auto half = (ldir + viewDir).Normalize ();
+				auto angle = std::max (0.0f, half.Dot (vnormal));
+				specular = std::pow (angle, 16.0f);
+			}
+			//return (light.specularColor * specular * model.material.ks);
 			return (TextureLookup (model.material.texture, v.uv.x, v.uv.y) * (light.ambientColor * model.material.ka + light.diffuseColor * lambertian * model.material.kd) + light.specularColor * specular * model.material.ks);
 		}; // blinn-phong shading.
 
@@ -339,7 +350,7 @@ struct Renderer {
 	} // fill triangle with color
 
 	static bool TriangleCheck (const Vertex &v0, const Vertex &v1, const Vertex &v2, Vertex &v, Vector4 &w) {
-		w.x = EdgeFunc (v1.pos, v2.pos, v.pos) * v0.pos.w / w.w;
+		w.x = EdgeFunc (v1.pos, v2.pos, v.pos) * v0.pos.w / w.w; // pos.w == 1 / pos.z . we did that in Ndc2Screen()
 		w.y = EdgeFunc (v2.pos, v0.pos, v.pos) * v1.pos.w / w.w;
 		w.z = EdgeFunc (v0.pos, v1.pos, v.pos) * v2.pos.w / w.w;
 		return (w.x < 0 || w.y < 0 || w.z < 0);
@@ -350,7 +361,7 @@ struct Renderer {
 	} // note that the result of edge function could be represent as area as well.
 
     static inline void Interpolate (const Vertex &v0, const Vertex &v1, const Vertex &v2, Vertex &v,const Vector4 &w) {
-        v.pos.z = 1.0f / (w.x + w.y + w.z);
+        v.pos.z = 1.0f / (w.x + w.y + w.z); // keep in maind that in TriangleCheck() we already done the (w = w * 1/z) part
 		v.viewPos = (v0.viewPos * w.x + v1.viewPos * w.y + v2.viewPos * w.z) * v.pos.z;
 		v.normal = (v0.normal * w.x + v1.normal * w.y + v2.normal * w.z) * v.pos.z;
 		v.color = (v0.color * w.x + v1.color * w.y + v2.color * w.z) * v.pos.z;
@@ -440,12 +451,12 @@ int main () {
 	Renderer renderer (WIDTH, HEIGHT);
 	renderer.SetFrustum ((float)M_PI_2, (float)WIDTH / (float)HEIGHT, 0.1f, 1000.0f);
 	renderer.SetCamera ({ 0.0f, 3.0f, 5.0f }, { 0.0f, 0.0f, 0.0f });
-	renderer.SetLight ({ 0.0f, 1.0f, 2.0f }, { 0.5f, 0.0f, 0.0f, 0 }, { 1.0f, 1.0, 1.0, 0 }, { 1.0f, 1.0f, 1.0f, 0 });
+	renderer.SetLight ({ -10.0f, 30.0f, 30.0f }, { 0.5f, 0.0f, 0.0f, 0 }, { 0.8f, 0.8f, 0.8f, 0 }, { 0.5f, 0.5f, 0.5f, 0 });
 
 	// Model (filepath, position, material)
-	Model sphere ("res/sphere", { 2.5f, 0.5f, 1.5f }, { 0.1f, 1.0f, 1.2f });
+	Model sphere ("res/sphere", { 2.5f, 0.5f, 1.5f }, { 0.1f, 1.0f, 0.5f });
     renderer.DrawModel (sphere, true, false);
-	Model bunny ("res/bunny", { 0.0f, 0.0f, 0.0f }, { 0.1f, 0.8f, 0.6f });
+	Model bunny ("res/bunny", { 0.0f, 0.0f, 0.0f }, { 0.1f, 0.8f, 0.7f });
 	renderer.DrawModel (bunny, true, false);
 	Model cube ("res/cube", { -2.0f, 0.0f, 2.0f }, { 0.3f, 0.8f, 0.8f });
 	renderer.DrawModel (cube, true, false);

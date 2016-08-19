@@ -8,7 +8,7 @@
 
 * 纹理模式渲染
 * 线框模式渲染
-* 简易光照
+* 单个点光源
 
 渲染效果如图
 ![screenshot.jpg](https://github.com/jintiao/cobra/raw/master/screenshot.jpg)
