@@ -15,17 +15,17 @@ struct Vector4 {
 	Vector4 operator* (float f) const { return{ x * f, y * f, z * f, w * f }; }
 	Vector4 Cross (const Vector4 &rhs) const { return{ y * rhs.z - z * rhs.y, z * rhs.x - x * rhs.z, x * rhs.y - y * rhs.x }; }
 	float Dot (const Vector4 &rhs) const { return (x * rhs.x + y * rhs.y + z * rhs.z); }
-	Vector4 Normalize () const { 
-		float invlen = 1.0f / sqrtf (x * x + y * y + z * z); 
-		return{ x * invlen, y * invlen, z * invlen }; 
+	Vector4 Normalize () const {
+		float invlen = 1.0f / sqrtf (x * x + y * y + z * z);
+		return{ x * invlen, y * invlen, z * invlen };
 	};
 }; // we use vecter4 representing position/direction/uv/color etc.
 
 struct Matrix4 {
 	float m[4][4];
-	Matrix4 () { 
-		memset (m, 0, sizeof (m)); 
-		m[0][0] = m[1][1] = m[2][2] = m[3][3] = 1.0f; 
+	Matrix4 () {
+		memset (m, 0, sizeof (m));
+		m[0][0] = m[1][1] = m[2][2] = m[3][3] = 1.0f;
 	}
 
 	Matrix4 operator* (const Matrix4 &rhs) const {
@@ -103,8 +103,8 @@ struct Matrix4 {
 	Matrix4 InvertTranspose () const {
 		Matrix4 t, o = *this;
 		o.Invert ();
-		for (int i = 0; i < 4; i++) 
-			for (int j = 0; j < 4; j++) 
+		for (int i = 0; i < 4; i++)
+			for (int j = 0; j < 4; j++)
 				t.m[i][j] = o.m[j][i];
 		return t;
 	} // (M-1)T
@@ -138,10 +138,10 @@ Matrix4 CreateProjectionMatrix (float hfov, float ratio, float n, float f) {
 } // same as opengl's projection matrix, but remember we are using row-major order, so it looks a little different.
 
 Matrix4 CreateViewMatrix (const Vector4 &look, const Vector4 &at, const Vector4 &up) {
-	Vector4 zaxis = (look - at).Normalize (), xzaxis = up.Cross (zaxis).Normalize (), yzaxis = zaxis.Cross (xzaxis);
+	Vector4 zaxis = (look - at).Normalize (), xaxis = up.Cross (zaxis).Normalize (), yaxis = zaxis.Cross (xaxis);
 	Matrix4 mat;
-	mat.m[0][0] = xzaxis.x; mat.m[0][1] = xzaxis.y; mat.m[0][2] = xzaxis.z; mat.m[0][3] = 0.0f;
-	mat.m[1][0] = yzaxis.x; mat.m[1][1] = yzaxis.y; mat.m[1][2] = yzaxis.z; mat.m[1][3] = 0.0f;
+	mat.m[0][0] = xaxis.x; mat.m[0][1] = xaxis.y; mat.m[0][2] = xaxis.z; mat.m[0][3] = 0.0f;
+	mat.m[1][0] = yaxis.x; mat.m[1][1] = yaxis.y; mat.m[1][2] = yaxis.z; mat.m[1][3] = 0.0f;
 	mat.m[2][0] = zaxis.x; mat.m[2][1] = zaxis.y; mat.m[2][2] = zaxis.z; mat.m[2][3] = 0.0f;
 	mat.m[3][0] = look.x; mat.m[3][1] = look.y; mat.m[3][2] = look.z; mat.m[3][3] = 1.0f;
 	mat.Invert ();
